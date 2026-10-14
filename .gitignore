@@ -1,0 +1,17 @@
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Secrets / local config ----
+.env
+.env.*
+!.env.example
+local.properties
