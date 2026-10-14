@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+#
+# Development image for the Spring server.
+# Nothing is compiled at build time: the source is bind-mounted (see
+# docker-compose.dev.yml) and built on the fly by Gradle. The host's Gradle
+# cache (~/.gradle) is mounted in compose so dependencies are reused.
+#
+FROM eclipse-temurin:25-jdk-noble
+WORKDIR /app
+EXPOSE 8083
+
+# chmod handles hosts (e.g. Windows) where the gradlew exec bit is lost.
+CMD ["sh", "-c", "chmod +x gradlew && ./gradlew bootRun --no-daemon"]

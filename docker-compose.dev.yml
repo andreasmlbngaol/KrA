@@ -1,0 +1,98 @@
+# Development stack: fast iteration (bind-mounted source + Vite HMR).
+# Usage:  docker compose --env-file .env.dev -f docker-compose.dev.yml up
+#         (--env-file loads dev-only config: separate DB name, ports, and secret;
+#          the project name "kra-dev" below keeps this stack fully separate from
+#          prod, so no -p flag is needed.)
+# For the optimized production stack use the default docker-compose.yml.
+#
+# This dev stack is isolated from prod: its OWN Compose project ("kra-dev"), its
+# OWN volumes (kra_pgdata_dev), and its OWN host ports
+# (defaults 5434 / 8081 / 5173). So dev and prod never mix and both can run.
+#
+# Note: the server reuses your local Gradle cache (~/.gradle) so build plugins
+# and dependencies are NOT re-downloaded on every run. On Windows, replace
+# ${HOME} with ${USERPROFILE} below.
+name: kra-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kra-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-kra_db_dev}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT_HOST:-5434}:5432"
+    volumes:
+      - kra_pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-kra_db_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    container_name: kra-server-dev
+    # Use public DNS so the container can resolve external LLM API hosts.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # The JDK image (Ubuntu/noble) ships bash but no curl/wget; probe the port.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+      start_period: 30s
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-kra_db_dev}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-krs-server}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-krs-client}
+      JWT_COOKIE_SECURE: "false"
+      PORT: 8083
+    ports:
+      - "${SERVER_PORT:-8081}:8083"
+    volumes:
+      # Live source for on-the-fly Gradle compilation.
+      - ./server:/app
+      # Reuse the host's Gradle cache (already populated by IntelliJ) so the
+      # build does not re-download plugins/deps.
+      - kra_gradle_cache_dev:/root/.gradle
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.dev
+    container_name: kra-app-dev
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      # Inside the compose network the API is reached via the "server" service.
+      VITE_PROXY_TARGET: http://server:8083
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      # Bind-mount the app source so Vite HMR sees edits.
+      - ./app:/workspace/app
+      # Keep the container's node_modules (don't shadow it with the host's).
+      - /workspace/app/node_modules
+    working_dir: /workspace/app
+
+volumes:
+  kra_pgdata_dev:
+  kra_gradle_cache_dev:

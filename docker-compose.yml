@@ -1,0 +1,95 @@
+# Production stack: postgres + Spring server + nginx web.
+# Datastores are internal-only; web waits for a healthy server; logs are rotated.
+# Usage: docker compose up -d --build
+#
+# Isolated from the dev stack via the Compose project name "kra-prod" (the dev
+# stack uses "kra-dev"), so both can run side by side with separate containers,
+# networks, and volumes. Prod-only config lives in .env (copy from .env.example).
+name: kra-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kra-postgres
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: ${DB_NAME:-kra_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    # Bound to localhost only so local DB tools (e.g. IntelliJ Database) can
+    # connect at 127.0.0.1:${DB_PORT_HOST:-5433} without exposing it to the network.
+    ports:
+      - "127.0.0.1:${DB_PORT_HOST:-5433}:5432"
+    volumes:
+      - kra_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-kra_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: kra-server
+    # Public DNS so the container can resolve external LLM API hosts.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-kra_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-krs-server}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-krs-client}
+      # Secure cookie for HTTPS; set false only when serving over plain HTTP.
+      JWT_COOKIE_SECURE: ${JWT_COOKIE_SECURE:-true}
+      PORT: 8083
+    # Internal-only; nginx proxies /api to it. Uncomment to hit the API directly.
+    # ports:
+    #   - "${SERVER_PORT:-8083}:8083"
+    healthcheck:
+      # The JRE image (Ubuntu/noble) ships bash but no curl/wget; probe the port.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: kra-app
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
+    healthcheck:
+      # nginx:alpine ships BusyBox wget; a 200 on / means the SPA is served.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  kra_pgdata:

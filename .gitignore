@@ -14,4 +14,5 @@ logs/
 .env
 .env.*
 !.env.example
+!.env.dev.example
 local.properties

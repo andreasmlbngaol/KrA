@@ -135,6 +135,11 @@ class AcademicSeeder(
         students.saveAll(
             all.map { StudentEntity(it.nim, it.name, it.semester, 2000 + it.nim.take(2).toInt()) }
         )
+
+        // Test student for development (NIM 230001, password = NIM)
+        if (!students.existsById("230001")) {
+            students.save(StudentEntity("230001", "Test Student", 1, 2023))
+        }
     }
 
     private fun seedCurriculumPackages() {

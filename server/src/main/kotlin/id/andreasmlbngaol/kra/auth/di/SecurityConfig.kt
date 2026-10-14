@@ -29,6 +29,9 @@ class SecurityConfig(
             sessionManagement { sessionCreationPolicy = SessionCreationPolicy.STATELESS }
             authorizeHttpRequests {
                 authorize(HttpMethod.OPTIONS, "/**", permitAll)
+                authorize("/", permitAll)
+                authorize("/api", permitAll)
+                authorize("/api/", permitAll)
                 authorize("/api/auth/**", permitAll)
                 authorize("/api/dashboard/**", permitAll)
                 authorize("/actuator/health", permitAll)
