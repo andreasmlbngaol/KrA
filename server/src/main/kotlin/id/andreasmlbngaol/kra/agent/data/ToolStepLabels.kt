@@ -23,9 +23,9 @@ object ToolStepLabels {
         "getCapstoneCourses" to "Mengecek kelayakan KP/Magang & Tugas Akhir",
         "getKrsDraft" to "Membuka draft KRS tersimpan",
         "saveDraftKrs" to "Menyimpan draft KRS",
-        "getSksBudget" to "Menghitung anggaran SKS yang tersedia",
-        "getMbkmSksBudget" to "Menghitung anggaran SKS MBKM",
-        "validateKrsDraft" to "Memeriksa draft KRS (jadwal & prasyarat)"
+        "validateKrsDraft" to "Memeriksa draft KRS (jadwal & prasyarat)",
+        "solveKrs" to "Menyusun kombinasi KRS (solver CSP)",
+        "getKrsCapacity" to "Menghitung kapasitas SKS realistis"
     )
 
     /** Friendly label for a tool; generic fallback when the tool is not mapped. */

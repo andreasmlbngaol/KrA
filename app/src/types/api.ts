@@ -44,6 +44,12 @@ export interface ChatHistoryEntry {
   streamed: boolean;
   durationMs: number;
   steps: string[];
+  llmCalls: number;
+  toolCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  model: string | null;
 }
 
 export interface ChatHistoryResponse {
@@ -159,3 +165,158 @@ export interface KrsDraftResponse {
   totalSks: number;
   items: KrsDraftItemDto[];
 }
+
+// --- Monitoring: tool calls -------------------------------------------------
+export interface ToolCallEntry {
+  chatId: string;
+  nim: string;
+  sessionId: string;
+  seq: number;
+  toolName: string;
+  arguments: string;
+  status: string;
+  durationMs: number;
+  resultSize: number;
+  timestamp: string;
+}
+
+export interface ToolCallListResponse {
+  enabled: boolean;
+  count: number;
+  entries: ToolCallEntry[];
+}
+
+export interface ToolUsageEntry {
+  toolName: string;
+  calls: number;
+  errors: number;
+  avgDurationMs: number;
+}
+
+export interface ToolUsageResponse {
+  enabled: boolean;
+  count: number;
+  tools: ToolUsageEntry[];
+}
+
+// --- Monitoring: CSP solver -------------------------------------------------
+export interface CspSummary {
+  totalSolves: number;
+  feasibleCount: number;
+  infeasibleCount: number;
+  avgDurationMs: number;
+  avgNodes: number;
+  avgBacktracks: number;
+  avgAc3Revisions: number;
+  avgVariables: number;
+  avgDomainValues: number;
+}
+
+export interface CspSolveEntry {
+  id: string;
+  timestamp: string;
+  nim: string;
+  semester: number;
+  status: string;
+  objective: string;
+  variables: number;
+  constraints: number;
+  domainValues: number;
+  targetSks: number;
+  resultSks: number;
+  nodes: number;
+  backtracks: number;
+  ac3Revisions: number;
+  forwardChecks: number;
+  durationMs: number;
+  alternatives: number;
+  mbkmMode: boolean;
+  chatId: string | null;
+}
+
+export interface CspStatsResponse {
+  enabled: boolean;
+  summary: CspSummary;
+  recent: CspSolveEntry[];
+}
+
+// --- Monitoring: evaluation -------------------------------------------------
+export interface EvaluationCase {
+  code: string;
+  nim: string;
+  semester: number;
+  description: string;
+  expectedFeasible: boolean;
+  expectedMinSks: number | null;
+  expectedMaxSks: number | null;
+  expectedTools: string[];
+  expectedCourseCodes: string[];
+  active: boolean;
+  createdAt: string | null;
+}
+
+export interface EvaluationCaseListResponse {
+  count: number;
+  cases: EvaluationCase[];
+}
+
+export interface EvaluationSummary {
+  totalRuns: number;
+  correctRuns: number;
+  solutionAccuracy: number;
+  avgPrecision: number;
+  avgRecall: number;
+  avgF1: number;
+}
+
+export interface EvaluationRun {
+  caseCode: string;
+  chatId: string | null;
+  timestamp: string;
+  feasible: boolean;
+  totalSks: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  solutionCorrect: boolean;
+  expectedTools: string[];
+  actualTools: string[];
+  notes: string | null;
+}
+
+export interface EvaluationRunListResponse {
+  count: number;
+  runs: EvaluationRun[];
+}
+
+export interface SurveySummary {
+  instrument: string;
+  responses: number;
+  avgScore: number;
+}
+
+export interface SurveySummaryResponse {
+  instruments: SurveySummary[];
+}
+
+export interface SurveyAnswer {
+  itemCode: string;
+  likert: number;
+}
+
+export interface SurveyResponse {
+  nim: string;
+  instrument: string;
+  submittedAt: string;
+  score: number;
+  susScore: number | null;
+  puScore: number | null;
+  peouScore: number | null;
+  answers: SurveyAnswer[];
+}
+
+export interface SurveyResponseListResponse {
+  count: number;
+  responses: SurveyResponse[];
+}
+

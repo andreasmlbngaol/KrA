@@ -3,15 +3,23 @@ package id.andreasmlbngaol.kra.academic.data.repository.jpa
 import id.andreasmlbngaol.kra.academic.data.entity.CourseEntity
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.query.Param
 
 interface CourseJpaRepository : JpaRepository<CourseEntity, String> {
-    /** Courses that belong to [semester]'s curriculum package. */
+    /**
+     * Courses that have at least one class offering in the active academic term.
+     *
+     * Availability is driven by the real offering data: if a course has a class this
+     * term, it is available — regardless of the curriculum package it belongs to or
+     * the odd/even parity of [CourseEntity.normalSemester].
+     */
     @Query(
         """
-        select c from CourseEntity c, CurriculumPackageEntity cp
-        where cp.courseCode = c.code and cp.semester = :semester
+        select c from CourseEntity c
+        where exists (
+            select 1 from ClassOfferingEntity o
+            where o.course = c and o.term.isActive = true
+        )
         """
     )
-    fun findAvailableInSemester(@Param("semester") semester: Int): List<CourseEntity>
+    fun findOfferedInActiveTerm(): List<CourseEntity>
 }

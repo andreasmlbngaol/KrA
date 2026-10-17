@@ -87,6 +87,9 @@ class AcademicSeeder(
     }
 
     private fun seedTerms() {
+        // Exactly one term is active. Activating two at once would let a student take an
+        // even-semester course during the odd semester, which the curriculum forbids.
+        // To test even-semester courses, flip the active term instead of opening both.
         val rows = (2022..2025).flatMap { year -> SemesterType.entries.map { year to it } }
         terms.saveAll(rows.map { (year, type) -> AcademicTermEntity(UUID.randomUUID(), year, type, false) })
         terms.save(AcademicTermEntity(UUID.randomUUID(), 2026, SemesterType.GANJIL, true))
@@ -120,6 +123,9 @@ class AcademicSeeder(
                         startTime = cls.startTime,
                         endTime = cls.endTime,
                         quota = cls.quota,
+                        // Deterministic, never-full occupancy so seeded demos stay solvable;
+                        // the quota constraint itself is covered by solver unit tests.
+                        enrolled = (index * 7) % (cls.quota / 2 + 1),
                         lecturerNidns = (classLecturers[cls.courseCode to cls.classCode] ?: emptyList())
                             .toMutableSet()
                     )

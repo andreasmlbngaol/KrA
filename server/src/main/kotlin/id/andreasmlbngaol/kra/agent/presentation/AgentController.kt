@@ -2,7 +2,11 @@ package id.andreasmlbngaol.kra.agent.presentation
 
 import id.andreasmlbngaol.kra.academic.domain.usecase.StudentUseCase
 import id.andreasmlbngaol.kra.agent.data.KrsAgent
+import ai.koog.prompt.llm.LLModel
+import id.andreasmlbngaol.kra.agent.domain.model.AgentToolCallLog
+import id.andreasmlbngaol.kra.agent.domain.model.TurnMetrics
 import id.andreasmlbngaol.kra.agent.domain.repository.ChatHistoryRepository
+import id.andreasmlbngaol.kra.agent.domain.repository.ToolCallLogRepository
 import id.andreasmlbngaol.kra.agent.presentation.dto.ChatRequest
 import id.andreasmlbngaol.kra.agent.presentation.dto.ChatStreamEvent
 import id.andreasmlbngaol.kra.core.enums.ChatStreamEventType
@@ -44,7 +48,9 @@ private val streamJson = Json { encodeDefaults = true }
 class AgentController(
     private val krsAgent: KrsAgent,
     private val studentUseCase: StudentUseCase,
-    private val chatHistory: ChatHistoryRepository
+    private val chatHistory: ChatHistoryRepository,
+    private val toolCallLog: ToolCallLogRepository,
+    private val llModel: LLModel
 ) {
 
     /** Non-streaming fallback: returns the agent's final reply as plain text. */
@@ -61,25 +67,36 @@ class AgentController(
 
             val startedAt = System.currentTimeMillis()
             val steps = Collections.synchronizedList(mutableListOf<String>())
+            val metrics = TurnMetrics()
             try {
                 val response = krsAgent.run(
                     agentInput = buildContextualMessage(nim, request.message),
                     sessionId = request.sessionId,
                     semester = student.semester,
+                    metrics = metrics,
                     onStep = { steps.add(it) }
                 )
                 if (looksLikeRawProviderError(response)) {
                     logger.error("Agent mengembalikan error provider mentah: {}", response)
-                    record(nim, request, ErrorMessages.AI_UNAVAILABLE, "error", false, startedAt, steps)
+                    record(nim, request, ErrorMessages.AI_UNAVAILABLE, "error", false, startedAt, steps, metrics)
                     return@runBlocking ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                         .body(ErrorMessages.AI_UNAVAILABLE)
                 }
-                record(nim, request, response, "final", false, startedAt, steps)
-                ResponseEntity.ok(response)
+                val finalResponse = ensureQuestionAnswered(
+                    agent = krsAgent,
+                    nim = nim,
+                    message = request.message,
+                    response = response,
+                    semester = student.semester,
+                    sessionId = request.sessionId,
+                    metrics = metrics
+                )
+                record(nim, request, finalResponse, "final", false, startedAt, steps, metrics)
+                ResponseEntity.ok(finalResponse)
             } catch (e: Exception) {
                 logger.error("Gagal memproses permintaan chat agent", e)
                 val (status, message) = friendlyError(e)
-                record(nim, request, message, "error", false, startedAt, steps)
+                record(nim, request, message, "error", false, startedAt, steps, metrics)
                 ResponseEntity.status(status).body(message)
             }
         }
@@ -112,6 +129,7 @@ class AgentController(
 
             val startedAt = System.currentTimeMillis()
             val steps = Collections.synchronizedList(mutableListOf<String>())
+            val metrics = TurnMetrics()
 
             runBlocking {
                 val events = Channel<ChatStreamEvent>(Channel.UNLIMITED)
@@ -122,6 +140,7 @@ class AgentController(
                             agentInput = buildContextualMessage(nim, request.message),
                             sessionId = request.sessionId,
                             semester = student.semester,
+                            metrics = metrics,
                             onStep = { label ->
                                 steps.add(label)
                                 events.trySend(ChatStreamEvent(ChatStreamEventType.STEP, label = label))
@@ -132,21 +151,30 @@ class AgentController(
                         )
                         if (looksLikeRawProviderError(response)) {
                             logger.error("Agent mengembalikan error provider mentah: {}", response)
-                            record(nim, request, ErrorMessages.AI_UNAVAILABLE, "error", true, startedAt, steps)
+                            record(nim, request, ErrorMessages.AI_UNAVAILABLE, "error", true, startedAt, steps, metrics)
                             events.send(ChatStreamEvent(ChatStreamEventType.ERROR, content = ErrorMessages.AI_UNAVAILABLE))
                         } else {
-                            record(nim, request, response, "final", true, startedAt, steps)
-                            events.send(ChatStreamEvent(ChatStreamEventType.FINAL, content = response))
+                            val finalResponse = ensureQuestionAnswered(
+                                agent = krsAgent,
+                                nim = nim,
+                                message = request.message,
+                                response = response,
+                                semester = student.semester,
+                                sessionId = request.sessionId,
+                                metrics = metrics
+                            )
+                            record(nim, request, finalResponse, "final", true, startedAt, steps, metrics)
+                            events.send(ChatStreamEvent(ChatStreamEventType.FINAL, content = finalResponse))
                         }
                     } catch (e: CancellationException) {
                         // Client closed the connection. Normal, not a failure: record the
                         // abandoned turn and rethrow so the coroutine actually cancels.
-                        record(nim, request, "", "cancelled", true, startedAt, steps)
+                        record(nim, request, "", "cancelled", true, startedAt, steps, metrics)
                         throw e
                     } catch (e: Exception) {
                         logger.error("Gagal memproses permintaan chat agent (stream)", e)
                         val (_, message) = friendlyError(e)
-                        record(nim, request, message, "error", true, startedAt, steps)
+                        record(nim, request, message, "error", true, startedAt, steps, metrics)
                         events.send(ChatStreamEvent(ChatStreamEventType.ERROR, content = message))
                     } finally {
                         events.close()
@@ -190,7 +218,7 @@ class AgentController(
             .body(body)
     }
 
-    /** Records a chat turn, computing the duration from [startedAt]. */
+    /** Records a chat turn plus its tool calls, computing the duration from [startedAt]. */
     private fun record(
         nim: String,
         request: ChatRequest,
@@ -198,9 +226,10 @@ class AgentController(
         status: String,
         streamed: Boolean,
         startedAt: Long,
-        steps: List<String>
+        steps: List<String>,
+        metrics: TurnMetrics
     ) {
-        chatHistory.record(
+        val chatId = chatHistory.record(
             nim = nim,
             sessionId = request.sessionId,
             request = request.message,
@@ -208,7 +237,25 @@ class AgentController(
             status = status,
             streamed = streamed,
             durationMs = System.currentTimeMillis() - startedAt,
-            steps = steps.toList()
+            steps = steps.toList(),
+            metrics = metrics,
+            model = llModel.id
+        )
+        toolCallLog.recordAll(
+            metrics.toolCalls.map {
+                AgentToolCallLog(
+                    chatId = chatId,
+                    nim = nim,
+                    sessionId = request.sessionId,
+                    seq = it.seq,
+                    toolName = it.toolName,
+                    arguments = it.arguments,
+                    status = it.status,
+                    durationMs = it.durationMs,
+                    resultSize = it.resultSize,
+                    timestamp = it.timestamp
+                )
+            }
         )
     }
 }
@@ -219,4 +266,88 @@ private fun buildContextualMessage(nim: String, message: String): String = build
     appendLine("Gunakan NIM ini untuk semua pemanggilan tool; JANGAN meminta NIM ke mahasiswa.]")
     appendLine()
     append(message)
+    // Recency matters: the reminder goes AFTER the user message so the model reads it last.
+    if (containsQuestion(message)) {
+        appendLine()
+        appendLine()
+        appendLine("[INSTRUKSI WAJIB UNTUK GILIRAN INI]")
+        appendLine("Pesan di atas mengandung pertanyaan. Sebelum menampilkan draft atau daftar matkul, jawab pertanyaan itu di kalimat pertama.")
+        appendLine("Jika pertanyaannya berbentuk bisa/tidak atau boleh/tidak, awali dengan \"Bisa.\" atau \"Tidak bisa.\" lalu alasannya.")
+        appendLine("DILARANG memulai jawaban dengan \"Draft\", \"Berikut\", atau \"Ini\" selama pertanyaan belum dijawab.")
+        appendLine("Setelah pertanyaan dijawab, baru jalankan perintah dalam pesan.")
+    }
+}
+
+private val QUESTION_WORD = Regex(
+    "\\b(bisa|boleh|apakah|gimana|bagaimana|kenapa|mengapa|berapa|kok)\\b",
+    RegexOption.IGNORE_CASE
+)
+
+/** True when the message asks something, even if it is mixed with a command. */
+private fun containsQuestion(message: String): Boolean =
+    message.contains('?') || QUESTION_WORD.containsMatchIn(message)
+
+/** A reply that leads with a full draft instead of an answer. */
+private fun looksLikeDraft(text: String): Boolean {
+    val trimmed = text.trimStart()
+    return trimmed.startsWith("Draft", ignoreCase = true) ||
+        trimmed.startsWith("Berikut", ignoreCase = true) ||
+        text.contains("**Wajib") ||
+        text.contains("Total draft", ignoreCase = true)
+}
+
+/** True when the reply already opens with a direct yes/no answer. */
+private fun alreadyAnswers(text: String): Boolean {
+    val head = text.trimStart().take(160)
+    return Regex("^(Bisa|Tidak\\s+bisa|Ya|Tidak)\\b", RegexOption.IGNORE_CASE)
+        .containsMatchIn(head) ||
+        Regex("\\b(tidak|nggak|gak)\\s+bisa\\b", RegexOption.IGNORE_CASE).containsMatchIn(head)
+}
+
+/** Keeps only the question sentences so the repair turn cannot trigger a new draft. */
+private fun extractQuestions(message: String): String {
+    val sentences = message.split(Regex("(?<=[.!?])\\s+"))
+    val questions = sentences.filter { containsQuestion(it) }
+    return if (questions.isEmpty()) message else questions.joinToString(" ")
+}
+
+/**
+ * Small models tend to answer with the draft and forget the question embedded in the same
+ * message. When that happens, run one focused question-only turn and prepend its answer, so
+ * the student always gets a direct reply before the draft.
+ */
+private suspend fun ensureQuestionAnswered(
+    agent: KrsAgent,
+    nim: String,
+    message: String,
+    response: String,
+    semester: Int,
+    sessionId: String,
+    metrics: TurnMetrics
+): String {
+    if (!containsQuestion(message) || !looksLikeDraft(response) || alreadyAnswers(response)) {
+        return response
+    }
+    val repairInput = buildContextualMessage(
+        nim,
+        "[INSTRUKSI SISTEM: Ini hanya pertanyaan lanjutan. JANGAN menyusun draft dan " +
+            "JANGAN menampilkan daftar matkul. Jawab pertanyaan berikut dalam 1-3 kalimat. " +
+            "Jika pertanyaannya bisa/tidak, awali dengan \"Bisa.\" atau \"Tidak bisa.\".]\n\n" +
+            extractQuestions(message)
+    )
+    val answer = try {
+        agent.run(
+            agentInput = repairInput,
+            sessionId = "$sessionId-q-${System.currentTimeMillis()}",
+            semester = semester,
+            metrics = metrics
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.warn("Gagal menjawab pertanyaan lanjutan: {}", e.message)
+        null
+    }
+    if (answer.isNullOrBlank() || looksLikeRawProviderError(answer)) return response
+    return answer.trim() + "\n\n" + response
 }

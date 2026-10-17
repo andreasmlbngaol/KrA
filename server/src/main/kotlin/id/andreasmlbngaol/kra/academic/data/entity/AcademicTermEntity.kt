@@ -27,7 +27,7 @@ class AcademicTermEntity(
     @Column(name = "semester_type", nullable = false, length = 10)
     var semesterType: SemesterType = SemesterType.GANJIL,
 
-    /** Source of truth for the current "term berjalan". Only one row may be active. */
+    /** A term whose class offerings are open for scheduling. Only one row may be active. */
     @Column(name = "is_active", nullable = false)
     var isActive: Boolean = false
 )

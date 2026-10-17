@@ -1,9 +1,18 @@
 package id.andreasmlbngaol.kra.agent.presentation
 
+import id.andreasmlbngaol.kra.academic.domain.repository.CspSolveLogRepository
 import id.andreasmlbngaol.kra.agent.domain.repository.ChatHistoryRepository
+import id.andreasmlbngaol.kra.agent.domain.repository.ToolCallLogRepository
 import id.andreasmlbngaol.kra.agent.domain.repository.TokenUsageRepository
 import id.andreasmlbngaol.kra.agent.presentation.dto.ChatHistoryEntry
 import id.andreasmlbngaol.kra.agent.presentation.dto.ChatHistoryResponse
+import id.andreasmlbngaol.kra.agent.presentation.dto.CspSolveEntryDto
+import id.andreasmlbngaol.kra.agent.presentation.dto.CspStatsResponse
+import id.andreasmlbngaol.kra.agent.presentation.dto.CspSummaryDto
+import id.andreasmlbngaol.kra.agent.presentation.dto.ToolCallEntryDto
+import id.andreasmlbngaol.kra.agent.presentation.dto.ToolCallListResponse
+import id.andreasmlbngaol.kra.agent.presentation.dto.ToolUsageEntryDto
+import id.andreasmlbngaol.kra.agent.presentation.dto.ToolUsageResponse
 import id.andreasmlbngaol.kra.agent.presentation.dto.TokenUsagePoint
 import id.andreasmlbngaol.kra.agent.presentation.dto.TokenUsageReport
 import id.andreasmlbngaol.kra.agent.presentation.dto.TokenUsageToolCount
@@ -21,7 +30,9 @@ import java.time.Instant
 @RequestMapping("/api/dashboard")
 class DashboardController(
     private val tokenUsageRepository: TokenUsageRepository,
-    private val chatHistoryRepository: ChatHistoryRepository
+    private val chatHistoryRepository: ChatHistoryRepository,
+    private val cspSolveLogRepository: CspSolveLogRepository,
+    private val toolCallLogRepository: ToolCallLogRepository
 ) {
 
     /** Most recent chat turns across ALL users (newest first). */
@@ -43,7 +54,92 @@ class DashboardController(
                     status = e.status,
                     streamed = e.streamed,
                     durationMs = e.durationMs.toInt(),
-                    steps = e.steps
+                    steps = e.steps,
+                    llmCalls = e.llmCalls,
+                    toolCalls = e.toolCalls,
+                    inputTokens = e.inputTokens,
+                    outputTokens = e.outputTokens,
+                    totalTokens = e.totalTokens,
+                    model = e.model
+                )
+            }
+        )
+    }
+
+    /** Aggregate CSP solver statistics plus the most recent solves. */
+    @GetMapping("/csp-stats")
+    fun cspStats(@RequestParam(defaultValue = "50") limit: Int): CspStatsResponse {
+        val summary = cspSolveLogRepository.summary()
+        val recent = cspSolveLogRepository.queryRecent(limit.coerceIn(1, 200))
+        return CspStatsResponse(
+            enabled = cspSolveLogRepository.isEnabled,
+            summary = CspSummaryDto(
+                totalSolves = summary.totalSolves,
+                feasibleCount = summary.feasibleCount,
+                infeasibleCount = summary.infeasibleCount,
+                avgDurationMs = summary.avgDurationMs,
+                avgNodes = summary.avgNodes,
+                avgBacktracks = summary.avgBacktracks,
+                avgAc3Revisions = summary.avgAc3Revisions,
+                avgVariables = summary.avgVariables,
+                avgDomainValues = summary.avgDomainValues
+            ),
+            recent = recent.map {
+                CspSolveEntryDto(
+                    id = it.id,
+                    timestamp = it.timestamp,
+                    nim = it.nim,
+                    semester = it.semester,
+                    status = it.status.name,
+                    objective = it.objective.name,
+                    variables = it.variables,
+                    constraints = it.constraints,
+                    domainValues = it.domainValues,
+                    targetSks = it.targetSks,
+                    resultSks = it.resultSks,
+                    nodes = it.nodes,
+                    backtracks = it.backtracks,
+                    ac3Revisions = it.ac3Revisions,
+                    forwardChecks = it.forwardChecks,
+                    durationMs = it.durationMs,
+                    alternatives = it.alternatives,
+                    mbkmMode = it.mbkmMode,
+                    chatId = it.chatId
+                )
+            }
+        )
+    }
+
+    /** Per-tool call counts, error counts, and average duration. */
+    @GetMapping("/tool-usage")
+    fun toolUsage(): ToolUsageResponse {
+        val tools = toolCallLogRepository.usageByTool()
+        return ToolUsageResponse(
+            enabled = toolCallLogRepository.isEnabled,
+            count = tools.size,
+            tools = tools.map { ToolUsageEntryDto(it.toolName, it.calls, it.errors, it.avgDurationMs) }
+        )
+    }
+
+    /** Newest individual tool invocations, with arguments and duration. */
+    @GetMapping("/tool-calls")
+    fun toolCalls(@RequestParam(defaultValue = "100") limit: Int): ToolCallListResponse {
+        val entries = toolCallLogRepository.recent(limit.coerceIn(1, 500))
+        return ToolCallListResponse(
+            enabled = toolCallLogRepository.isEnabled,
+            count = entries.size,
+            entries = entries.map {
+                ToolCallEntryDto(
+                    chatId = it.chatId,
+                    nim = it.nim,
+                    sessionId = it.sessionId,
+                    seq = it.seq,
+                    toolName = it.toolName,
+                    arguments = it.arguments,
+                    status = it.status.name,
+                    durationMs = it.durationMs,
+                    resultSize = it.resultSize,
+                    timestamp = it.timestamp.toString()
                 )
             }
         )

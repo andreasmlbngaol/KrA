@@ -6,23 +6,25 @@ Panduan konteks & kondisi proyek untuk Claude Code. Baca ini dulu sebelum menyen
 
 ## 0. Status Proyek — BACA DULU
 
-> ⚠️ **Ini VERSI AWAL dan MASIH JAUH DARI SELESAI.**
+> ⚠️ **Versi aktif: solver CSP sudah terintegrasi, tetapi belum diuji end-to-end di UI.**
 
 Yang **sudah** ada:
 - Server Spring Boot fungsional: auth JWT, data akademik (KHS/KRS/kurikulum/kelas), agent AI (Koog + OpenRouter), observability token.
 - Web app React fungsional: login, dashboard, KHS, kelola KRS, chat agent (streaming), monitoring.
-- Docker (prod + dev), seeder otomatis, Flyway migration, DB ter-expose untuk inspector.
+- Docker (prod + dev), seeder otomatis, Flyway migration (V1 + V2), DB ter-expose untuk inspector.
+- **✅ CSP solver deterministik** (`KrsCspSolver`): variabel = matkul, domain = kelas/KOM, constraint unary/biner/global, **AC-3 + MAC + backtracking MRV**, branch-and-bound, diagnostik + relaksasi.
+- **✅ Tool `solveKrs` & `getKrsCapacity`** — satu-satunya sumber kombinasi matkul+kelas.
+- **✅ Observability evaluasi**: metrik per-turn (`chat_history`), `agent_tool_call`, `csp_solve_log`, tabel `evaluation_case`/`evaluation_run`/`survey_response`/`survey_answer`.
+- **✅ Endpoint evaluasi** (`EvaluationController`): authoring case, ukur P/R/F1 pemanggilan tool, akurasi solusi, serta submit & rekap kuesioner TAM/SUS.
 
-Yang **BELUM** ada — dan ini inti tesis:
-- **❌ Integrasi CSP (Constraint Satisfaction Problem).** Ini tujuan utama proyek, tapi **belum diimplementasikan sama sekali**. Saat ini pemilihan matkul/draft KRS sepenuhnya dilakukan oleh **LLM lewat tool-calling** (agent memanggil tool validasi + menyusun draft sendiri berdasarkan prompt). **Tidak ada solver CSP, tidak ada backtracking, tidak ada forward-checking, tidak ada variabel/domain/constraint eksplisit** yang dijalankan sebagai algoritma.
-- Validasi yang ada (`KrsValidationUseCase`) bersifat **imperatif/checklist** (cek bentrok jadwal, prasyarat, kuota, duplikat, elektif) — **bukan** CSP solver. Ia memverifikasi draft yang sudah disusun, bukan **mencari** solusi.
-- **Belum ada** endpoint yang menerima daftar matkul yang diinginkan lalu mengembalikan **kombinasi kelas/KOM optimal** hasil pencarian CSP.
-- Password masih plaintext `password == nim` (TODO di `AuthController`) — belum ada kolom `passwordHash`.
-- Belum ada test selain smoke test `ServerApplicationTests`.
+Yang **BELUM** ada:
+- Password masih plaintext `password == nim` (TODO di `AuthController`).
 - Belum ada integrasi SIA/SATU MAHASISWA (data dari seeder).
-- `chat_history` in-memory Koog `InMemoryChatHistoryProvider` → **tidak persist** lintas restart (histori sesi agent); yang persist hanya observability `chat_history` table (untuk dashboard), bukan memori percakapan.
+- `chat_history` in-memory Koog `InMemoryChatHistoryProvider` → **tidak persist** lintas restart (histori sesi agent).
+- Halaman UI untuk evaluasi & kuesioner (endpoint sudah ada, frontend belum).
+- Test selain unit test solver, metrik evaluasi, + smoke test.
 
-**Arah ke depan (rencana CSP):** inti proyek adalah memodelkan penyusunan KRS sebagai CSP — variabel = matkul yang perlu diambil, domain = kelas/KOM yang tersedia, constraint = prasyarat, kuota, bentrok jadwal, batas SKS/IP, paritas ganjil-genap, KOM tetap, praktikum-butuh-teori, min SKS capstone, MKWU reserved, MBKM. LLM berperan sebagai **antarmuka & reasoning**, sedangkan **pencarian solusi yang benar** diserahkan ke CSP solver deterministik (bukan ditebak LLM). Belum ada satu baris pun dari ini.
+**Pembagian peran (jangan dilanggar):** LLM = grounding (memilih matkul wajib/opsional + bobot minat) dan penjelas; **solver** = pencarian & kepastian validitas. Prompt melarang LLM menyusun kombinasi sendiri.
 
 ---
 
@@ -89,7 +91,7 @@ Setiap fitur:
 ```
 <feature>/
 ├── domain/{model,repository,usecase}   # model murni + interface repo + @Service use case
-├── data/{entity,repository(+jpa),seed,observability,tools}
+├── data/{entity,repository(+jpa),seed,observability,evaluation,tools}
 ├── presentation/{Controller.kt,dto/}
 └── di/                                  # @Configuration (bean)
 ```
@@ -157,6 +159,14 @@ Base: `/api`. Semua **kecuali** `auth` & `dashboard` butuh `Authorization: Beare
 | POST | `/api/auth/logout` | `AuthController` | publik |
 | GET | `/api/dashboard/chat-history` | `DashboardController` | **publik** (internal monitoring) |
 | GET | `/api/dashboard/token-usage` | `DashboardController` | **publik** |
+| GET | `/api/dashboard/csp-stats` | `DashboardController` | **publik** |
+| GET | `/api/dashboard/tool-usage` | `DashboardController` | **publik** |
+| POST | `/api/evaluation/cases` | `EvaluationController` | **publik** (internal) |
+| GET | `/api/evaluation/cases` | `EvaluationController` | **publik** |
+| POST | `/api/evaluation/cases/{code}/run` | `EvaluationController` | **publik** |
+| GET | `/api/evaluation/summary` | `EvaluationController` | **publik** |
+| POST | `/api/evaluation/survey` | `EvaluationController` | **publik** |
+| GET | `/api/evaluation/survey/summary` | `EvaluationController` | **publik** |
 | POST | `/api/agent/chat` | `AgentController` | JWT |
 | POST | `/api/agent/chat/stream` | `AgentController` | JWT — NDJSON |
 | GET | `/api/khs` | `KhsController` | JWT |
@@ -201,7 +211,11 @@ Semester 1–2 (atau KHS sebelumnya kosong) → **24**.
 
 **Validasi draft** (`KrsValidationUseCase.validateDraft`) — cek: total vs max SKS (setelah reserved MKWU), **bentrok jadwal** (hari sama + jam overlap), **pelanggaran prasyarat**, **matkul duplikat** (kode sama >1×), **kewajiban elektif** (pilih 1 dari N REGULAR_ELECTIVE normalSemester == semester). `remainingSks = maxSks − mkwuReserved − totalSks`. Draft disimpan **hanya** bila tak ada isu pemblokir (`KrsUseCase.saveDraftKrs` → `SaveDraftKrsResult.Success/Rejected`).
 
-**Paritas:** matkul ganjil hanya di semester ganjil, genap hanya genap. **Pengecualian:** KP/Magang `ILK4202` & Tugas Akhir `ILK4299` (parity-free).
+**Ketersediaan:** ditentukan oleh **class offering di term aktif** (`class_offerings.term.isActive = true`), bukan paritas ganjil/genap maupun paket kurikulum. Matkul yang punya kelas di term aktif boleh diambil (prasyarat tetap berlaku).
+
+**Kunci KOM** (`CspVariable.komLocked`): hanya **matkul wajib semester berjalan** (`REGULAR_MANDATORY` && `normalSemester == semester`) yang dikunci ke KOM mahasiswa. Matkul **pilihan, ulang, dan semester atas** boleh memakai kelas KOM lain — kasus nyata kelas gabungan yang cuma dibuka satu kelas — dan ditandai `komSwitched`.
+
+**Draft parsial:** KRS sah bila **tidak ada aturan yang dilanggar**, bukan bila semua slot terisi. Matkul yang tidak bisa ditempatkan masuk `unassignedRequired` + `diagnostics` (KOM tidak dibuka / kuota penuh / bentrok / sisa kuota SKS), dan draft **tetap boleh disimpan**. `INFEASIBLE` hanya bila **tidak ada satu pun** matkul yang bisa ditempatkan. Skor solver leksikografis: jumlah matkul wajib terpasang → total SKS → minat → sedikit perpindahan KOM.
 
 **Tipe matkul** (`CourseType`): `MKWU`, `MKWK`, `REGULAR_MANDATORY`, `REGULAR_ELECTIVE`. Label FE via `jenisLabel()`.
 
@@ -219,26 +233,44 @@ Semester 1–2 (atau KHS sebelumnya kosong) → **24**.
   - Universal: `00-identitas-dan-alur-wajib.md`, `04-aturan-umum.md`, `05-aturan-kritis.md`, `06-aturan-draft-krs.md`, `07-format-tampilan-rekomendasi.md`, `08-gaya-jawaban.md`.
   - Alur: sem 1–2 → `01-…`, sem 3–5 → `02-…`, sem 6–8 → `03-…`.
 - NIM **disuntikkan** sebagai konteks sistem (`buildContextualMessage`) — agent **tidak boleh** tanya NIM.
+- **Pertanyaan yang menempel pada perintah wajib dijawab.** `buildContextualMessage` menambahkan instruksi di akhir pesan bila ada pertanyaan, dan `ensureQuestionAnswered` menjadi jaring pengaman: bila balasan tetap dimulai dengan draft padahal ada pertanyaan, satu giliran khusus dijalankan untuk menjawab pertanyaan itu lalu jawabannya ditempel di depan draft. Berlaku di endpoint chat dan stream.
 - Observability lewat `handleEvents`: `onLLMCallCompleted` → `TokenUsageTracker.recordLlmCall`; `onToolCallStarting` → `recordToolCall` + emit step.
 
 **Tool sets** (semua `@Component` kecuali `KrsToolSet` yang per-request):
 - `StudentInfoToolSet`: `getStudentInfo`.
 - `KhsToolSet`: `getKhs`, `getIpSemester`, `getTotalPassedSks`, `getRepeatableCourses`.
 - `CourseToolSet`: `getAvailableCourses`, `getCurriculumPackage`, `getCourseClasses`, `calculateTotalSks`, `getRemainingMandatoryCourses`, `getRequiredElectives`, `getEligibleUpperCourses`, `getCapstoneCourses`.
-- `KrsToolSet`: `getKrsDraft`, `saveDraftKrs`, `getSksBudget`, `getMbkmSksBudget`, `validateKrsDraft`.
+- `KrsCspToolSet`: `solveKrs`, `getKrsCapacity` (**satu-satunya sumber kombinasi**).
+- `KrsToolSet`: `getKrsDraft`, `saveDraftKrs`, `validateKrsDraft`.
+
+> `getSksBudget`/`getMbkmSksBudget` **dihapus** — anggaran SKS kini dihitung di dalam solver.
 
 Semua tool mengembalikan **JSON string** (dibaca LLM per field). Label ramah step ada di `agent/data/ToolStepLabels.kt`.
 
 **TokenUsageTracker** (`agent/data/observability`): counter Atomic per-menit; scheduler **tiap 60 detik** log + persist 1 baris `token_usage_minute` ke PostgreSQL, lalu reset window. Dashboard membaca ini (`/api/dashboard/token-usage`, range `15m`/`6h`/menit).
 
+**Evaluasi** (`EvaluationUseCase` + `EvaluationController`, publik seperti dashboard):
+
+| Metrik proposal | Cara ukur |
+|---|---|
+| Akurasi solusi | `evaluation_case` (ground truth) vs `evaluation_run.solution_correct` = verdict feasible cocok **dan** SKS dalam rentang **dan** semua `expected_course_codes` ada di KRS |
+| Tool invocation accuracy | `EvaluationMetrics.toolScores()` — set `expected_tools` vs nama tool di `agent_tool_call` untuk `chat_id` yang sama; P/R/F1, duplikat dihitung sekali |
+| Efisiensi token | kolom `llm_calls`/`tool_calls`/`*_tokens` per baris `chat_history` |
+| Kinerja solver | `csp_solve_log` (`nodes`, `backtracks`, `ac3_revisions`, `duration_ms`) |
+| Penerimaan pengguna | `survey_response`/`survey_answer`; SUS = formula standar ×2.5 (0..100), TAM = rata-rata PU & PEOU (1..5) |
+
+Validasi & skoring kuesioner ada di `SurveyScoring` (domain, pure) — **bukan** di `@Repository`, karena `PersistenceExceptionTranslationInterceptor` membungkus exception dari bean `@Repository` menjadi `InvalidDataAccessApiUsageException` (jadi 500, bukan 400).
+
 ---
 
 ## 8. Data Model (Flyway V1, PostgreSQL)
 
-13 tabel: `academic_terms`, `students`, `lecturers`, `courses`, `course_constraints`, `course_prerequisites`, `curriculum_packages`, `class_offerings`, `offering_lecturers`, `khs`, `krs`, `token_usage_minute`, `chat_history`.
+19 tabel. V1 (13): `academic_terms`, `students`, `lecturers`, `courses`, `course_constraints`, `course_prerequisites`, `curriculum_packages`, `class_offerings`, `offering_lecturers`, `khs`, `krs`, `token_usage_minute`, `chat_history`.
+V2 (6): `agent_tool_call`, `csp_solve_log`, `evaluation_case`, `evaluation_run`, `survey_response`, `survey_answer`.
+V2 juga menambah `class_offerings.enrolled` (sisa kursi = `quota - enrolled`) dan kolom metrik per-turn di `chat_history`.
 
 Catatan desain penting:
-- `academic_terms.is_active` = sumber kebenaran "term berjalan" (hanya 1 aktif).
+- `academic_terms.is_active` = sumber kebenaran "term berjalan" (**hanya 1 aktif**, dijaga unique index parsial). Jangan pernah mengaktifkan dua term sekaligus: itu membuat mahasiswa semester ganjil bisa mengambil matkul genap. Untuk menguji matkul semester genap, tukar term aktifnya dulu (`update academic_terms set is_active = ...`), lalu kembalikan setelah selesai.
 - `students.entry_year` → `posisi_angkatan` **dihitung saat query** (bukan disimpan); `students.semester` hanya display/audit, **bukan** untuk logika CSP.
 - `course_constraints.min_sks` (1:1 dengan `courses`) memisahkan constraint internal prodi dari katalog resmi, agar re-sync katalog tidak menimpa.
 - `ClassOffering` = kelas **per-term** (KOM A/B/C identitas tetap, tapi dosen/jadwal/kuota bisa beda tiap tahun).
@@ -251,11 +283,12 @@ Catatan desain penting:
 ## 9. Frontend
 
 - Entry: `src/main.tsx` → `App.tsx` (`AuthProvider > BrowserRouter > Routes`).
-- Route: `/login`, `/dashboard`, `/khs`, `/kelola-krs`, `/monitoring`, `/monitoring/chat`. `ProtectedRoute` untuk yang perlu auth. Fallback `*` → `/dashboard`.
+- Route: `/login`, `/dashboard`, `/khs`, `/kelola-krs`, lalu monitoring publik: `/monitoring` (ringkasan), `/monitoring/chat`, `/monitoring/token`, `/monitoring/tools`, `/monitoring/solver`, `/monitoring/evaluation`. `ProtectedRoute` untuk yang perlu auth. Fallback `*` → `/dashboard`.
+- Monitoring memakai **Material Design 3 navigation rail** (kolom 88px, active indicator pill, drawer modal di layar kecil) di `components/monitoring/MonitoringLayout.tsx`. Bahasa desain: M3 surface + tone, kartu rounded-2xl, satu topik per halaman (jangan gabung semua metrik dalam satu halaman).
 - Komponen global: `ChatLauncher` (FAB chat) + `GooeyToaster` (bottom-left).
 - API client: `src/api/http.ts` — axios, `baseURL = VITE_API_BASE_URL ?? '/api'`, access token di header `Authorization`, **auto-refresh on 401** (single-flight via `refreshPromise`; refresh client `withCredentials` untuk kirim cookie HttpOnly).
 - Tipe: `src/types/api.ts` = mirror plain-TS dari DTO server (menggantikan `krsShared` Kotlin/JS proyek lama). `src/types/ui.ts` = tipe UI.
-- Halaman: `LoginPage`, `DashboardPage`, `KhsPage`, `ManageKrsPage`, `ChatPage`, `TokenUsagePage`, `ChatHistoryPage`.
+- Halaman: `LoginPage`, `DashboardPage`, `KhsPage`, `ManageKrsPage`, `ChatPage`, `MonitoringOverviewPage`, `ChatHistoryPage`, `TokenUsagePage`, `ToolCallsPage`, `SolverPage`, `EvaluationPage`.
 - `ChatPage` streaming: pakai `fetch` mentah (bukan axios) untuk NDJSON dari `/agent/chat/stream`; menangani `step`/`draftSaved`/`final`/`error`/`ping`.
 - Styling: Tailwind 3, warna `usu` (hijau #13a05b) & `gold` (#f5b800). `styles/global.css` punya animasi chat & markdown.
 - **Streaming via nginx wajib** `proxy_buffering off` + timeout panjang (sudah ada di `app/nginx.conf`).
@@ -321,10 +354,14 @@ docker compose --env-file .env.dev -f docker-compose.dev.yml up   # dev
 
 ## 13. Roadmap / Yang Belum Selesai
 
-**Prioritas inti (inti skripsi — CSP):**
-1. **Rancang & implementasikan CSP solver** untuk penyusunan KRS: definisikan variabel (matkul), domain (kelas/KOM), constraint (prasyarat, kuota, jadwal, SKS, paritas, KOM, praktikum-teori, min SKS, MKWU, MBKM), dan algoritma pencarian (backtracking + forward checking / AC-3).
-2. **Endpoint baru** yang mengembalikan solusi KRS optimal dari daftar keinginan mahasiswa (bukan sekadar validasi draft yang sudah jadi).
-3. **Integrasikan solver dengan agent** — LLM menyusun preferensi & menjelaskan hasil, solver yang mencari solusi.
+**Inti skripsi (CSP) — SUDAH:**
+1. ✅ CSP solver: variabel, domain, constraint unary/biner/global, AC-3 + MAC + backtracking MRV.
+2. ✅ Tool `solveKrs` + `getKrsCapacity` (dipanggil agent, bukan endpoint terpisah).
+3. ✅ Integrasi solver ↔ agent: prompt sudah dirombak agar LLM tidak menyusun kombinasi.
+
+**Berikutnya:**
+- Halaman UI evaluasi: daftar case, tombol "ukur turn ini", grafik akurasi, form TAM/SUS.
+- Uji end-to-end lewat UI + validasi solver selalu lolos `validateDraft`.
 
 **Lain-lain:**
 4. Password hashing (`Student.passwordHash`) — hapus TODO plaintext di `AuthController`.
@@ -334,4 +371,4 @@ docker compose --env-file .env.dev -f docker-compose.dev.yml up   # dev
 8. Integrasi data nyata dari SIA/SATU MAHASISWA (sekarang seeder).
 9. Rate limiting & kuota token per mahasiswa.
 
-> **Ingat:** versi sekarang adalah **kerangka fungsional + agent LLM**, belum sistem CSP. Klaim tesis (CSP) belum terwujud di kode. Setiap perubahan ke arah CSP harus mempertahankan kontrak route & DTO yang sudah disamakan dengan proyek lama.
+> **Ingat:** klaim tesis (CSP) sudah terwujud di `KrsCspSolver`; yang belum adalah pembuktian empiris lewat UI dan pengukuran di lingkungan nyata. Setiap perubahan harus mempertahankan kontrak route & DTO yang sudah disamakan dengan proyek lama.

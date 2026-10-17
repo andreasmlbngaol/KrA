@@ -6,6 +6,7 @@ import id.andreasmlbngaol.kra.academic.domain.model.ElectiveRequirement
 import id.andreasmlbngaol.kra.academic.domain.model.KrsValidationResult
 import id.andreasmlbngaol.kra.academic.domain.model.PrerequisiteViolation
 import id.andreasmlbngaol.kra.academic.domain.model.ScheduleConflict
+import id.andreasmlbngaol.kra.academic.domain.model.rules.AcademicRules
 import id.andreasmlbngaol.kra.academic.domain.repository.CourseRepository
 import id.andreasmlbngaol.kra.core.enums.CourseType
 import org.springframework.stereotype.Service
@@ -21,7 +22,8 @@ import java.util.UUID
 @Service
 class KrsValidationUseCase(
     private val courseRepository: CourseRepository,
-    private val khsUseCase: KhsUseCase
+    private val khsUseCase: KhsUseCase,
+    private val courseUseCase: CourseUseCase
 ) {
     /**
      * Runs every enrollment check for a candidate set of class offerings.
@@ -36,9 +38,10 @@ class KrsValidationUseCase(
         val courseNameByCode = courses.associate { it.code to it.name }
 
         val totalSks = courses.sumOf { it.sks }
-        val previousSemester = (semester - 1).coerceAtLeast(0)
-        val maxSks = khsUseCase.getMaxSks(nim, previousSemester)
-        val mkwuReserved = getMkwuReservedSks(semester)
+        // Same resolver as the solver: one source of truth for the cap and the MKWU slot.
+        val context = courseUseCase.resolveSemesterContext(nim, semester)
+        val maxSks = khsUseCase.getMaxSks(nim, context.lastGraded)
+        val mkwuReserved = context.mkwuReservedSks
         val remaining = maxSks - mkwuReserved - totalSks
 
         // A course code may appear at most once: reject both the same class UUID twice
@@ -69,10 +72,13 @@ class KrsValidationUseCase(
             for (j in i + 1 until classes.size) {
                 val a = classes[i]
                 val b = classes[j]
+                val aStart = AcademicRules.timeToMinutes(a.startTime)
+                val aEnd = AcademicRules.timeToMinutes(a.endTime)
+                val bStart = AcademicRules.timeToMinutes(b.startTime)
+                val bEnd = AcademicRules.timeToMinutes(b.endTime)
                 val overlap = a.day != null && a.day == b.day &&
-                    a.startTime != null && a.endTime != null &&
-                    b.startTime != null && b.endTime != null &&
-                    a.startTime < b.endTime && b.startTime < a.endTime
+                    aStart != null && aEnd != null && bStart != null && bEnd != null &&
+                    aStart < bEnd && bStart < aEnd
                 if (overlap) {
                     conflicts.add(
                         ScheduleConflict(
@@ -87,8 +93,13 @@ class KrsValidationUseCase(
 
         // Mandatory "choose 1 of N" electives for the current semester: offered
         // REGULAR_ELECTIVE courses whose normalSemester equals the current semester.
-        val semesterElectives = courseRepository.getAvailableCourses(semester)
-            .filter { it.type == CourseType.REGULAR_ELECTIVE && it.normalSemester == semester }
+        val semesterElectives = context.electiveSemester
+            ?.let { electiveSemester ->
+                courseRepository.getOfferedCourses().filter {
+                    it.type == CourseType.REGULAR_ELECTIVE && it.normalSemester == electiveSemester
+                }
+            }
+            .orEmpty()
         val electiveCodes = semesterElectives.map { it.code }.toSet()
         val electiveRequirement = ElectiveRequirement(
             requiredChoose = if (semesterElectives.isEmpty()) 0 else 1,
@@ -109,13 +120,8 @@ class KrsValidationUseCase(
     }
 
     /**
-     * SKS reserved for MKWU (compulsory university courses) in a given semester:
-     * sem 3 = 4, sem 4 = 2, sem 5 = 2, and 0 for every other semester.
+     * SKS reserved for MKWU (compulsory university courses) in a given semester.
+     * Delegates to [AcademicRules] so the validator and the CSP solver share one source.
      */
-    fun getMkwuReservedSks(semester: Int): Int = when (semester) {
-        3 -> 4
-        4 -> 2
-        5 -> 2
-        else -> 0
-    }
+    fun getMkwuReservedSks(semester: Int): Int = AcademicRules.mkwuReservedSks(semester)
 }

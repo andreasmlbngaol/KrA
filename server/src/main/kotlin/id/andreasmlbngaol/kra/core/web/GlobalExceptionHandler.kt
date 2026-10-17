@@ -1,5 +1,6 @@
 package id.andreasmlbngaol.kra.core.web
 
+import id.andreasmlbngaol.kra.core.error.BadRequestException
 import id.andreasmlbngaol.kra.core.error.ErrorMessages
 import id.andreasmlbngaol.kra.core.error.friendlyError
 import org.slf4j.LoggerFactory
@@ -26,6 +27,14 @@ class GlobalExceptionHandler {
     fun handleUnreadableBody(cause: HttpMessageNotReadableException): ResponseEntity<String> {
         logger.warn("Permintaan tidak valid", cause)
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorMessages.BAD_REQUEST)
+    }
+
+    /** Caller-facing validation error (safe to show its message). */
+    @ExceptionHandler(BadRequestException::class)
+    fun handleBadRequest(cause: BadRequestException): ResponseEntity<String> {
+        logger.warn("Permintaan ditolak: {}", cause.message)
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(cause.message ?: ErrorMessages.BAD_REQUEST)
     }
 
     @ExceptionHandler(Throwable::class)

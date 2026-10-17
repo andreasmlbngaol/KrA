@@ -19,6 +19,12 @@ object ErrorMessages {
 }
 
 /**
+ * Invalid input from the caller whose message is safe to echo back verbatim (e.g. a missing
+ * evaluation case code). Anything else is mapped to a generic message by [friendlyError].
+ */
+class BadRequestException(message: String) : RuntimeException(message)
+
+/**
  * Detects whether an agent reply is actually a raw error dump from the LLM provider
  * (e.g. Koog/GoogleLLMClient) that should NOT reach the user.
  *

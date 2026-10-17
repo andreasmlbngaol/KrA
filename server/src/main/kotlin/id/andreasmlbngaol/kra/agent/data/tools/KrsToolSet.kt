@@ -4,8 +4,6 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import id.andreasmlbngaol.kra.academic.domain.model.KrsValidationResult
 import id.andreasmlbngaol.kra.academic.domain.model.SaveDraftKrsResult
-import id.andreasmlbngaol.kra.academic.domain.usecase.CourseUseCase
-import id.andreasmlbngaol.kra.academic.domain.usecase.KhsUseCase
 import id.andreasmlbngaol.kra.academic.domain.usecase.KrsUseCase
 import id.andreasmlbngaol.kra.academic.domain.usecase.KrsValidationUseCase
 import java.util.UUID
@@ -16,8 +14,6 @@ import java.util.UUID
  * Saving runs validation first and only persists a clean draft.
  */
 class KrsToolSet(
-    private val courseUseCase: CourseUseCase,
-    private val khsUseCase: KhsUseCase,
     private val krsUseCase: KrsUseCase,
     private val krsValidationUseCase: KrsValidationUseCase,
     /**
@@ -142,80 +138,6 @@ class KrsToolSet(
         }
         builder.appendLine("Perbaiki masalah di atas, lalu minta konfirmasi mahasiswa dan coba simpan kembali.")
         return builder.toString().trim()
-    }
-
-    /** Computes the remaining SKS budget for new upper/extra courses. */
-    @Tool
-    @LLMDescription(
-        "Sisa kuota SKS untuk matkul atas/tambahan BARU; otomatis memperhitungkan batas IP, SKS disisihkan MKWU, dan SEMUA matkul yang sudah ada di draft. targetSks = target mahasiswa (sudah termasuk MKWU); isi 0 untuk batas maksimal. plannedCourseCodes = SEMUA kode matkul yang sudah di draft/rencana saat ini (wajib + ulang + pilihan + atas), dipisah koma; kosongkan jika draft masih kosong. WAJIB dipakai untuk anggaran SKS - jangan hitung sisa kuota manual. JSON {maxSks, targetSks, effectiveTargetSks, mkwuReservedSks, mandatorySks, upperBudgetSks, committedSks, availableForNewSks, projectedTotalWithMkwu}. availableForNewSks = sisa SKS untuk matkul BARU (sudah dikurangi MKWU + semua matkul di draft) - PAKAI ANGKA INI. committedSks = total SKS matkul yang sudah di draft. projectedTotalWithMkwu = committedSks + MKWU."
-    )
-    suspend fun getSksBudget(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
-        @LLMDescription("Semester berjalan") semester: Int,
-        @LLMDescription("Target total SKS yang diinginkan mahasiswa, sudah termasuk MKWU. Isi 0 jika ingin memakai batas maksimal.") targetSks: Int,
-        @LLMDescription("SEMUA kode matkul yang sudah ada di draft/rencana saat ini (wajib + ulang + pilihan + atas), dipisah koma. Kosongkan ('') jika draft masih kosong.") plannedCourseCodes: String
-    ): String {
-        logCall("getSksBudget", "nim=$nim, semester=$semester, targetSks=$targetSks, plannedCourseCodes=$plannedCourseCodes")
-        val maxSks = khsUseCase.getMaxSks(nim, (semester - 1).coerceAtLeast(0))
-        val reserved = krsValidationUseCase.getMkwuReservedSks(semester)
-        val mandatorySks = courseUseCase.getTotalSksByCodes(
-            courseUseCase.getRemainingMandatoryCourses(nim, semester).map { it.code }
-        )
-        val plannedCodes = plannedCourseCodes.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        val committedSks = if (plannedCodes.isEmpty()) mandatorySks else courseUseCase.getTotalSksByCodes(plannedCodes)
-        val effectiveTarget = if (targetSks <= 0) maxSks else minOf(targetSks, maxSks)
-        val upperBudget = (effectiveTarget - reserved - mandatorySks).coerceAtLeast(0)
-        val availableForNew = (effectiveTarget - reserved - committedSks).coerceAtLeast(0)
-        return logResult(
-            "getSksBudget",
-            SksBudgetResponse(
-                maxSks = maxSks,
-                targetSks = if (targetSks > 0) targetSks else null,
-                effectiveTargetSks = effectiveTarget,
-                mkwuReservedSks = reserved,
-                mandatorySks = mandatorySks,
-                upperBudgetSks = upperBudget,
-                committedSks = committedSks,
-                availableForNewSks = availableForNew,
-                projectedTotalWithMkwu = committedSks + reserved
-            ).toJson()
-        )
-    }
-
-    /** SKS budget specific to MBKM students (semester 6/7): cap = min(20, IP-based limit). */
-    @Tool
-    @LLMDescription(
-        "Anggaran SKS KHUSUS mahasiswa MBKM (Studi Independen/Magang MBKM, sem 6/7): batas = min(20, batas IP) untuk SELURUH draft. Pakai HANYA bila mahasiswa benar-benar MBKM; selain itu pakai getSksBudget. targetSks isi 0 untuk maksimal. plannedCourseCodes = SEMUA kode matkul yang sudah di draft/rencana saat ini, dipisah koma; kosongkan jika draft masih kosong. Jangan hitung manual. JSON {maxSksByIp, mbkmCap, targetSks, effectiveTargetSks, mandatorySks, remainingSks, committedSks, availableForNewSks}. availableForNewSks = sisa SKS untuk matkul BARU (sudah dikurangi semua matkul di draft) - PAKAI ANGKA INI."
-    )
-    suspend fun getMbkmSksBudget(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
-        @LLMDescription("Semester berjalan (hanya relevan untuk semester 6 atau 7)") semester: Int,
-        @LLMDescription("Target total SKS yang diinginkan mahasiswa. Isi 0 untuk memakai batas maksimal MBKM.") targetSks: Int,
-        @LLMDescription("SEMUA kode matkul yang sudah ada di draft/rencana saat ini, dipisah koma. Kosongkan ('') jika draft masih kosong.") plannedCourseCodes: String
-    ): String {
-        logCall("getMbkmSksBudget", "nim=$nim, semester=$semester, targetSks=$targetSks, plannedCourseCodes=$plannedCourseCodes")
-        val maxSksByIp = khsUseCase.getMaxSks(nim, (semester - 1).coerceAtLeast(0))
-        val mbkmCap = minOf(20, maxSksByIp)
-        val mandatorySks = courseUseCase.getTotalSksByCodes(
-            courseUseCase.getRemainingMandatoryCourses(nim, semester).map { it.code }
-        )
-        val plannedCodes = plannedCourseCodes.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        val committedSks = if (plannedCodes.isEmpty()) mandatorySks else courseUseCase.getTotalSksByCodes(plannedCodes)
-        val effectiveTarget = if (targetSks <= 0) mbkmCap else minOf(targetSks, mbkmCap)
-        val availableForNew = (effectiveTarget - committedSks).coerceAtLeast(0)
-        return logResult(
-            "getMbkmSksBudget",
-            MbkmSksBudgetResponse(
-                maxSksByIp = maxSksByIp,
-                mbkmCap = mbkmCap,
-                targetSks = if (targetSks > 0) targetSks else null,
-                effectiveTargetSks = effectiveTarget,
-                mandatorySks = mandatorySks,
-                remainingSks = availableForNew,
-                committedSks = committedSks,
-                availableForNewSks = availableForNew
-            ).toJson()
-        )
     }
 
     /** Validates a candidate KRS draft; must be called before saveDraftKrs. */

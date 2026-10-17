@@ -3,6 +3,7 @@ package id.andreasmlbngaol.kra.agent.data.observability
 import id.andreasmlbngaol.kra.agent.data.entity.ChatHistoryEntity
 import id.andreasmlbngaol.kra.agent.data.repository.jpa.ChatHistoryJpaRepository
 import id.andreasmlbngaol.kra.agent.domain.model.ChatLogEntry
+import id.andreasmlbngaol.kra.agent.domain.model.TurnMetrics
 import id.andreasmlbngaol.kra.agent.domain.repository.ChatHistoryRepository
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -43,12 +44,15 @@ class ChatHistoryRepositoryImpl(
         status: String,
         streamed: Boolean,
         durationMs: Long,
-        steps: List<String>
-    ) {
+        steps: List<String>,
+        metrics: TurnMetrics,
+        model: String?
+    ): String {
         val now = Instant.now()
+        val chatId = UUID.randomUUID()
         val entity = ChatHistoryEntity(
             day = dayOf(now),
-            id = UUID.randomUUID(),
+            id = chatId,
             ts = now,
             nim = nim,
             sessionId = sessionId,
@@ -57,7 +61,13 @@ class ChatHistoryRepositoryImpl(
             status = status,
             streamed = streamed,
             durationMs = durationMs,
-            steps = json.encodeToString(steps)
+            steps = json.encodeToString(steps),
+            llmCalls = metrics.llmCalls,
+            toolCalls = metrics.toolCalls.size,
+            inputTokens = metrics.inputTokens,
+            outputTokens = metrics.outputTokens,
+            totalTokens = metrics.totalTokens,
+            model = model
         )
         executor.execute {
             try {
@@ -66,6 +76,7 @@ class ChatHistoryRepositoryImpl(
                 log.warn("Gagal menyimpan chat turn ke PostgreSQL: {}", e.message)
             }
         }
+        return chatId.toString()
     }
 
     @Transactional(readOnly = true)
@@ -88,7 +99,13 @@ class ChatHistoryRepositoryImpl(
                     status = it.status,
                     streamed = it.streamed,
                     durationMs = it.durationMs,
-                    steps = steps
+                    steps = steps,
+                    llmCalls = it.llmCalls,
+                    toolCalls = it.toolCalls,
+                    inputTokens = it.inputTokens,
+                    outputTokens = it.outputTokens,
+                    totalTokens = it.totalTokens,
+                    model = it.model
                 )
             }
         } catch (e: Exception) {

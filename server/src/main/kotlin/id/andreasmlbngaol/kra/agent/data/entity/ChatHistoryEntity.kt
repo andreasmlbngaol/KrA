@@ -52,5 +52,23 @@ class ChatHistoryEntity(
     var durationMs: Long = 0,
 
     @Column(name = "steps", nullable = false, columnDefinition = "text")
-    var steps: String = ""
+    var steps: String = "",
+
+    @Column(name = "llm_calls", nullable = false)
+    var llmCalls: Int = 0,
+
+    @Column(name = "tool_calls", nullable = false)
+    var toolCalls: Int = 0,
+
+    @Column(name = "input_tokens", nullable = false)
+    var inputTokens: Long = 0,
+
+    @Column(name = "output_tokens", nullable = false)
+    var outputTokens: Long = 0,
+
+    @Column(name = "total_tokens", nullable = false)
+    var totalTokens: Long = 0,
+
+    @Column(name = "model", length = 64)
+    var model: String? = null
 )

@@ -104,7 +104,7 @@ class KhsUseCase(
         val repeatable = bestGradePerCourse.filter { (_, grade) -> grade in REPEATABLE_GRADES }
         if (repeatable.isEmpty()) return emptyList()
 
-        val availableCodes = courseRepository.getAvailableCourses(currentSemester).map { it.code }.toSet()
+        val availableCodes = courseRepository.getOfferedCourses().map { it.code }.toSet()
         val courses = courseRepository.getCoursesByCodes(repeatable.keys.toList()).associateBy { it.code }
 
         return repeatable.mapNotNull { (code, grade) ->

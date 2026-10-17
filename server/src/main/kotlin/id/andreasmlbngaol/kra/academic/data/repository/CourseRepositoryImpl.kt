@@ -30,9 +30,17 @@ class CourseRepositoryImpl(
     private val lecturers: LecturerJpaRepository
 ) : CourseRepository {
 
-    override fun getAvailableCourses(semester: Int): List<Course> {
-        val entities = courses.findAvailableInSemester(semester)
-        return entities.map { toCourse(it) }
+    override fun getOfferedCourses(): List<Course> =
+        courses.findOfferedInActiveTerm().map { toCourse(it) }
+
+    override fun getAllCourses(): List<Course> {
+        // One query per table instead of one per course: the prerequisite graph is
+        // walked for every solve, so an N+1 here would be paid on every turn.
+        val prereqByCourse = prerequisites.findAll().groupBy({ it.courseCode }, { it.prerequisiteCode })
+        val minSksByCourse = constraints.findAll().associate { it.courseCode to it.minSks }
+        return courses.findAll().map { entity ->
+            toCourse(entity, prereqByCourse[entity.code].orEmpty(), minSksByCourse[entity.code] ?: 0)
+        }
     }
 
     override fun getCourseByCode(code: String): Course? =
@@ -40,6 +48,11 @@ class CourseRepositoryImpl(
 
     override fun getClassOfferings(courseCode: String): List<ClassOffering> =
         offerings.findActiveByCourseCode(courseCode).map { toOffering(it) }
+
+    override fun getClassOfferingsByCourseCodes(courseCodes: List<String>): List<ClassOffering> {
+        if (courseCodes.isEmpty()) return emptyList()
+        return offerings.findActiveByCourseCodes(courseCodes).map { toOffering(it) }
+    }
 
     override fun getTotalSksByCodes(courseCodes: List<String>): Int {
         if (courseCodes.isEmpty()) return 0
@@ -63,9 +76,11 @@ class CourseRepositoryImpl(
 
     // --- Mapping ---
 
-    private fun toCourse(e: CourseEntity): Course {
-        val minSks = constraints.findById(e.code).map { it.minSks }.orElse(0)
-        val prereqs = prerequisites.findByCourseCodeIn(listOf(e.code)).map { it.prerequisiteCode }
+    private fun toCourse(
+        e: CourseEntity,
+        prereqs: List<String> = prerequisites.findByCourseCodeIn(listOf(e.code)).map { it.prerequisiteCode },
+        minSks: Int = constraints.findById(e.code).map { it.minSks }.orElse(0)
+    ): Course {
         return Course(
             code = e.code,
             name = e.name,
@@ -73,7 +88,6 @@ class CourseRepositoryImpl(
             normalSemester = e.normalSemester,
             type = e.type,
             minSks = minSks,
-            parityFree = false, // removed from schema; offerings data is the source of truth
             prerequisites = prereqs
         )
     }
@@ -88,6 +102,7 @@ class CourseRepositoryImpl(
         startTime = e.startTime,
         endTime = e.endTime,
         quota = e.quota,
+        enrolled = e.enrolled,
         lecturers = e.lecturerNidns.mapNotNull { nidn ->
             lecturers.findById(nidn).map { Lecturer(it.nidn, it.name) }.orElse(null)
         }

@@ -1,6 +1,7 @@
 package id.andreasmlbngaol.kra.agent.domain.repository
 
 import id.andreasmlbngaol.kra.agent.domain.model.ChatLogEntry
+import id.andreasmlbngaol.kra.agent.domain.model.TurnMetrics
 
 /**
  * Storage for full agent chat turns (observability): every request/response pair,
@@ -25,8 +26,10 @@ interface ChatHistoryRepository {
         status: String,
         streamed: Boolean,
         durationMs: Long,
-        steps: List<String>
-    )
+        steps: List<String>,
+        metrics: TurnMetrics,
+        model: String?
+    ): String
 
     /** Returns the most recent [limit] turns across all users, newest first. */
     fun queryRecent(limit: Int): List<ChatLogEntry>

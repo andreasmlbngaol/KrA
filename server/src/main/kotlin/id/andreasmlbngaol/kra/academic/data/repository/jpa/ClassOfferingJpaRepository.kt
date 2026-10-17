@@ -20,6 +20,15 @@ interface ClassOfferingJpaRepository : JpaRepository<ClassOfferingEntity, UUID> 
         """
         select distinct o from ClassOfferingEntity o
         left join fetch o.lecturerNidns
+        where o.course.code in :courseCodes and o.term.isActive = true
+        """
+    )
+    fun findActiveByCourseCodes(@Param("courseCodes") courseCodes: Collection<String>): List<ClassOfferingEntity>
+
+    @Query(
+        """
+        select distinct o from ClassOfferingEntity o
+        left join fetch o.lecturerNidns
         where o.id in :ids
         """
     )

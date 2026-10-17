@@ -13,9 +13,9 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 
 /**
- * Stateless JWT security: the auth and dashboard endpoints are public, everything
- * else under `/api` needs a valid access token. No sessions, no CSRF (token-based API),
- * no form login.
+ * Stateless JWT security: the auth, dashboard, and evaluation endpoints are public,
+ * everything else under `/api` needs a valid access token. No sessions, no CSRF
+ * (token-based API), no form login.
  */
 @Configuration
 class SecurityConfig(
@@ -34,6 +34,7 @@ class SecurityConfig(
                 authorize("/api/", permitAll)
                 authorize("/api/auth/**", permitAll)
                 authorize("/api/dashboard/**", permitAll)
+                authorize("/api/evaluation/**", permitAll)
                 authorize("/actuator/health", permitAll)
                 authorize("/v3/api-docs/**", permitAll)
                 authorize("/swagger-ui/**", permitAll)

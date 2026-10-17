@@ -20,5 +20,11 @@ data class ChatLogEntry(
     val status: String,
     val streamed: Boolean,
     val durationMs: Long,
-    val steps: List<String>
+    val steps: List<String>,
+    val llmCalls: Int = 0,
+    val toolCalls: Int = 0,
+    val inputTokens: Long = 0,
+    val outputTokens: Long = 0,
+    val totalTokens: Long = 0,
+    val model: String? = null
 )

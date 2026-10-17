@@ -64,3 +64,41 @@ export function weekDates(): Record<string, string> {
   });
   return out;
 }
+
+/** Waktu relatif singkat ("baru saja", "12 menit lalu", "3 jam lalu"). */
+export function relativeTime(iso: string): string {
+  if (!iso) return '-';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const seconds = Math.max(0, Math.round(diffMs / 1000));
+  if (seconds < 45) return 'baru saja';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} menit lalu`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} jam lalu`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} hari lalu`;
+  return new Date(iso).toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Tanggal + jam lengkap ("17 Okt 2026, 22.14"). */
+export function formatDateTime(iso: string): string {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/** Durasi milidetik ke teks ringkas. */
+export function formatDuration(ms: number): string {
+  if (!ms || ms <= 0) return '-';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1)} dtk`;
+}

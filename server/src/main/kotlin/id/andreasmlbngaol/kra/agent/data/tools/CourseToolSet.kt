@@ -5,8 +5,6 @@ import ai.koog.agents.core.tools.annotations.Tool
 import org.springframework.stereotype.Component
 import id.andreasmlbngaol.kra.academic.domain.usecase.CourseUseCase
 import id.andreasmlbngaol.kra.academic.domain.usecase.KhsUseCase
-import id.andreasmlbngaol.kra.core.enums.CourseType
-import id.andreasmlbngaol.kra.core.enums.Grade
 
 /**
  * Agent ToolSet exposing read-only course-catalog operations to the LLM: available
@@ -20,16 +18,16 @@ class CourseToolSet(
     private val khsUseCase: KhsUseCase
 ) : LoggingToolSet() {
 
-    /** Lists courses offered in [semester], without prerequisite filtering. */
+    /** Lists courses that have a class offering in the active term, without prerequisite filtering. */
     @Tool
     @LLMDescription(
-        "Daftar matkul tersedia sesuai paritas semester (ganjil/genap), termasuk KP/Magang & Tugas Akhir. BELUM difilter prasyarat - untuk matkul atas yang prasyaratnya terpenuhi pakai getEligibleUpperCourses. Berguna untuk verifikasi keberadaan/identitas matkul. JSON {semester, totalCourses, courses:[{code, name, sks, normalSemester, type}]}."
+        "Daftar matkul yang PUNYA KELAS di term aktif (offering), tanpa filter paritas maupun prasyarat. Inilah sumber kebenaran ketersediaan: selama matkul ada di daftar ini, matkul boleh diambil (prasyarat tetap dicek solver). BELUM difilter prasyarat - untuk matkul atas yang prasyaratnya terpenuhi pakai getEligibleUpperCourses. Berguna untuk verifikasi keberadaan/identitas matkul. JSON {semester, totalCourses, courses:[{code, name, sks, normalSemester, type}]}."
     )
     suspend fun getAvailableCourses(
-        @LLMDescription("Semester mahasiswa saat ini") semester: Int
+        @LLMDescription("Semester mahasiswa saat ini (hanya metadata; ketersediaan mengikuti offering term aktif)") semester: Int
     ): String {
         logCall("getAvailableCourses", "semester=$semester")
-        val courses = courseUseCase.getAvailableCourses(semester)
+        val courses = courseUseCase.getOfferedCourses()
         return logResult(
             "getAvailableCourses",
             AvailableCoursesResponse(
@@ -114,7 +112,10 @@ class CourseToolSet(
     /** Lists mandatory courses for [semester] the student has not passed yet. */
     @Tool
     @LLMDescription(
-        "Matkul wajib prodi semester tertentu yang BELUM lulus (sudah difilter otomatis terhadap KHS; grade selain E/T dianggap lulus & tidak muncul). Dasar utama pengisian matkul wajib prodi. JSON {semester, totalSks, totalCourses, courses:[{code, name, sks, normalSemester, type}]}."
+        "Matkul wajib prodi yang BELUM lulus sampai semester yang diminta, KUMULATIF (sudah difilter terhadap KHS; grade selain E/T dianggap lulus & tidak muncul). " +
+            "Mahasiswa semester 8 tetap bisa punya matkul semester 5 di daftar ini. Dasar utama pengisian matkul wajib prodi. " +
+            "importance = 1 + jumlah matkul wajib lain yang belum lulus dan membutuhkan matkul ini; importance > 1 berarti wajib diulang/diambil lebih dulu. " +
+            "JSON {semester, totalSks, totalCourses, courses:[{code, name, sks, normalSemester, type, importance}]}."
     )
     suspend fun getRemainingMandatoryCourses(
         @LLMDescription("Nomor Induk Mahasiswa") nim: String,
@@ -122,6 +123,7 @@ class CourseToolSet(
     ): String {
         logCall("getRemainingMandatoryCourses", "nim=$nim, semester=$semester")
         val courses = courseUseCase.getRemainingMandatoryCourses(nim, semester)
+        val importance = courseUseCase.getImportanceScores(nim)
         val totalSks = courseUseCase.getTotalSksByCodes(courses.map { it.code })
         return logResult(
             "getRemainingMandatoryCourses",
@@ -129,7 +131,7 @@ class CourseToolSet(
                 semester = semester,
                 totalSks = totalSks,
                 totalCourses = courses.size,
-                courses = courses.map { it.toDto() }
+                courses = courses.map { it.toDto(importance[it.code] ?: 1) }
             ).toJson()
         )
     }
@@ -158,28 +160,19 @@ class CourseToolSet(
     /** Lists upper-semester REGULAR_MANDATORY courses the student may take early. */
     @Tool
     @LLMDescription(
-        "Matkul semester atas yang eligible (prasyarat terpenuhi, paritas sesuai, normalSemester > semester sekarang). HANYA REGULAR_MANDATORY; matkul pilihan/peminatan dan matkul puncak (KP/Magang ILK4202, Tugas Akhir ILK4299) otomatis dikecualikan. JSON {semester, totalCourses, courses:[{code, name, sks, normalSemester, type}]}. pairingNote menjelaskan kaitan teori-praktikum (null bila tak relevan)."
+        "Matkul semester atas yang eligible: punya kelas di term aktif (offering), prasyarat terpenuhi, dan normalSemester > semester sekarang. HANYA REGULAR_MANDATORY; matkul pilihan/peminatan dan matkul puncak (KP/Magang ILK4202, Tugas Akhir ILK4299) otomatis dikecualikan. JSON {semester, totalCourses, courses:[{code, name, sks, normalSemester, type}]}. pairingNote menjelaskan kaitan teori-praktikum (null bila tak relevan)."
     )
     suspend fun getEligibleUpperCourses(
         @LLMDescription("Nomor Induk Mahasiswa") nim: String,
         @LLMDescription("Semester mahasiswa saat ini") semester: Int
     ): String {
         logCall("getEligibleUpperCourses", "nim=$nim, semester=$semester")
-        val passedCourses = khsUseCase.getKhsByNim(nim)
-            .filter { it.grade != Grade.E && it.grade != Grade.T }
-            .map { it.courseCode }
-            .toSet()
+        val passedCourses = khsUseCase.getPassedCourseCodes(nim).toSet()
 
-        val allCourses = courseUseCase.getAvailableCourses(semester)
+        val allCourses = courseUseCase.getOfferedCourses()
 
-        // Only REGULAR_MANDATORY courses may appear as upper-semester courses; electives /
-        // specialization and capstone courses carrying a Min SKS requirement are excluded.
-        val eligible = allCourses.filter { course ->
-            course.type == CourseType.REGULAR_MANDATORY &&
-                course.minSks == 0 &&
-                course.normalSemester > semester &&
-                course.prerequisites.all { prereq -> prereq in passedCourses }
-        }
+        // Eligibility itself lives in the use case so the CSP solver and this tool agree.
+        val eligible = courseUseCase.getEligibleUpperCourses(nim, semester)
 
         val eligibleByName = eligible.associateBy { it.name }
 

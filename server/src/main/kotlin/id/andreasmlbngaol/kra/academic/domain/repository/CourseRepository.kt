@@ -10,14 +10,26 @@ import java.util.UUID
  * and the active academic term.
  */
 interface CourseRepository {
-    /** Returns the courses offered in [semester]. */
-    fun getAvailableCourses(semester: Int): List<Course>
+    /** Returns every course that has at least one class offering in the active term. */
+    fun getOfferedCourses(): List<Course>
+
+    /**
+     * Returns the whole catalog, offered or not. Used to walk the prerequisite graph
+     * (a course that is not offered this term can still block a later course).
+     */
+    fun getAllCourses(): List<Course>
 
     /** Returns the course with [code], or `null` if none matches. */
     fun getCourseByCode(code: String): Course?
 
     /** Returns the class offerings (KOM) for [courseCode]. */
     fun getClassOfferings(courseCode: String): List<ClassOffering>
+
+    /**
+     * Returns the class offerings of several courses in the active term in ONE query.
+     * Used by the CSP solver to build every variable domain without an N+1 pattern.
+     */
+    fun getClassOfferingsByCourseCodes(courseCodes: List<String>): List<ClassOffering>
 
     /** Returns the combined SKS of the courses identified by [courseCodes]. */
     fun getTotalSksByCodes(courseCodes: List<String>): Int

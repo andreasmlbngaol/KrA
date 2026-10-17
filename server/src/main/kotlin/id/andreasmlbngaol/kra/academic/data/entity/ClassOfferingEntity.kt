@@ -51,6 +51,10 @@ class ClassOfferingEntity(
     @Column(name = "quota", nullable = false)
     var quota: Int = 0,
 
+    /** Students already enrolled; seats left = quota - enrolled (V2 migration). */
+    @Column(name = "enrolled", nullable = false)
+    var enrolled: Int = 0,
+
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "offering_lecturers", joinColumns = [JoinColumn(name = "offering_id")])
     @Column(name = "lecturer_nidn", nullable = false, length = 10)

@@ -20,5 +20,7 @@ data class ClassOffering(
     val startTime: String?,
     val endTime: String?,
     val quota: Int,
+    /** Number of students already enrolled. Seats left = [quota] - [enrolled]. */
+    val enrolled: Int = 0,
     val lecturers: List<Lecturer> = emptyList()
 )

@@ -8,6 +8,10 @@ import { KhsPage } from './pages/KhsPage';
 import { ManageKrsPage } from './pages/ManageKrsPage';
 import { TokenUsagePage } from './pages/TokenUsagePage';
 import { ChatHistoryPage } from './pages/ChatHistoryPage';
+import { MonitoringOverviewPage } from './pages/MonitoringOverviewPage';
+import { ToolCallsPage } from './pages/ToolCallsPage';
+import { SolverPage } from './pages/SolverPage';
+import { EvaluationPage } from './pages/EvaluationPage';
 import { GooeyToaster } from 'goey-toast';
 import 'goey-toast/styles.css';
 
@@ -41,9 +45,13 @@ export function App() {
               </ProtectedRoute>
             }
           />
-          {/* Public (no auth) — internal monitoring dashboards */}
-          <Route path="/monitoring" element={<TokenUsagePage />} />
+          {/* Public (no auth) - internal monitoring dashboards */}
+          <Route path="/monitoring" element={<MonitoringOverviewPage />} />
           <Route path="/monitoring/chat" element={<ChatHistoryPage />} />
+          <Route path="/monitoring/token" element={<TokenUsagePage />} />
+          <Route path="/monitoring/tools" element={<ToolCallsPage />} />
+          <Route path="/monitoring/solver" element={<SolverPage />} />
+          <Route path="/monitoring/evaluation" element={<EvaluationPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
         <ChatLauncher />

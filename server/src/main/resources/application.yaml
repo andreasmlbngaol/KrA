@@ -1,6 +1,12 @@
 spring:
   application:
     name: server
+  mvc:
+    async:
+      # Agent turns can span many tool calls + LLM round-trips. Keep the async
+      # request alive long enough for the full NDJSON stream to finish (the
+      # container default of 30s kills it mid-turn).
+      request-timeout: 10m
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/krs_db}
     username: ${DB_USER:postgres}

@@ -9,12 +9,13 @@ import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.executor.clients.LLMClient
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.llm.LLModel
-import id.andreasmlbngaol.kra.academic.domain.usecase.CourseUseCase
-import id.andreasmlbngaol.kra.academic.domain.usecase.KhsUseCase
 import id.andreasmlbngaol.kra.academic.domain.usecase.KrsUseCase
 import id.andreasmlbngaol.kra.academic.domain.usecase.KrsValidationUseCase
 import id.andreasmlbngaol.kra.agent.data.observability.TokenUsageTracker
+import id.andreasmlbngaol.kra.agent.domain.model.ToolCallStatus
+import id.andreasmlbngaol.kra.agent.domain.model.TurnMetrics
 import id.andreasmlbngaol.kra.agent.data.tools.CourseToolSet
+import id.andreasmlbngaol.kra.agent.data.tools.KrsCspToolSet
 import id.andreasmlbngaol.kra.agent.data.tools.KhsToolSet
 import id.andreasmlbngaol.kra.agent.data.tools.KrsToolSet
 import id.andreasmlbngaol.kra.agent.data.tools.StudentInfoToolSet
@@ -33,10 +34,9 @@ class KrsAgent(
     private val studentInfoToolSet: StudentInfoToolSet,
     private val khsToolSet: KhsToolSet,
     private val courseToolSet: CourseToolSet,
+    private val krsCspToolSet: KrsCspToolSet,
     // Raw use cases injected so KrsToolSet can be built PER-REQUEST (see buildAgent),
     // keeping the onDraftSaved callback isolated per request.
-    private val courseUseCase: CourseUseCase,
-    private val khsUseCase: KhsUseCase,
     private val krsUseCase: KrsUseCase,
     private val krsValidationUseCase: KrsValidationUseCase,
     private val tokenUsageTracker: TokenUsageTracker
@@ -70,13 +70,28 @@ class KrsAgent(
     private fun buildSystemPrompt(semester: Int): String {
         val flowFile = semesterFlowModules[semester]
             ?: error("Semester $semester tidak valid (harus 1-8)")
-        return (universalModules + flowFile).joinToString(separator = "\n\n---\n\n") { module ->
+        val modules = (universalModules + flowFile).joinToString(separator = "\n\n---\n\n") { module ->
             KrsAgent::class.java.getResourceAsStream("/prompt/$module")
                 ?.bufferedReader()
                 ?.use { it.readText() }
                 ?.trim()
                 ?: error("Modul prompt /prompt/$module tidak ditemukan di classpath resources")
         }
+        // Closing rule: it sits at the very end of the system prompt, right before the
+        // conversation, because a small model otherwise forgets the question gate once the
+        // tool results arrive.
+        return modules + "\n\n---\n\n" + CLOSING_RULE
+    }
+
+    private companion object {
+        val CLOSING_RULE = """
+            ## Aturan Penutup (selalu berlaku)
+
+            - Jika pesan mahasiswa mengandung pertanyaan (tanda tanya atau kata tanya), jawab pertanyaan itu di **kalimat pertama** sebelum menampilkan draft atau daftar matkul.
+            - Untuk pertanyaan bisa/tidak atau boleh/tidak, awali dengan **"Bisa."** atau **"Tidak bisa."** lalu alasannya.
+            - **Dilarang memulai jawaban dengan "Draft", "Berikut", atau "Ini"** selama pertanyaan belum dijawab.
+            - Jika pesan hanya pertanyaan, berhenti setelah menjawab. Jika ada perintah juga, jalankan setelah pertanyaan dijawab.
+        """.trimIndent()
     }
 
     // Shared across requests so per-session memory survives even though the agent instance
@@ -86,14 +101,13 @@ class KrsAgent(
     /** Builds an agent instance for a SINGLE chat request. */
     private fun buildAgent(
         systemPrompt: String,
+        metrics: TurnMetrics,
         onToolStep: (String) -> Unit,
         onDraftSaved: () -> Unit
     ): GraphAIAgent<String, String> {
         // KrsToolSet is intentionally NOT a singleton: built per-request so the onDraftSaved
         // callback applies only to the current request.
         val krsToolSet = KrsToolSet(
-            courseUseCase = courseUseCase,
-            khsUseCase = khsUseCase,
             krsUseCase = krsUseCase,
             krsValidationUseCase = krsValidationUseCase,
             onDraftSaved = onDraftSaved
@@ -104,6 +118,7 @@ class KrsAgent(
                 studentInfoToolSet.asTools() +
                     khsToolSet.asTools() +
                     courseToolSet.asTools() +
+                    krsCspToolSet.asTools() +
                     krsToolSet.asTools()
             )
         }
@@ -123,16 +138,43 @@ class KrsAgent(
             handleEvents {
                 onLLMCallCompleted { eventContext ->
                     val meta = eventContext.response?.metaInfo
+                    val input = meta?.inputTokensCount ?: 0
+                    val output = meta?.outputTokensCount ?: 0
+                    val total = meta?.totalTokensCount ?: 0
                     tokenUsageTracker.recordLlmCall(
-                        inputTokens = meta?.inputTokensCount ?: 0,
-                        outputTokens = meta?.outputTokensCount ?: 0,
-                        totalTokens = meta?.totalTokensCount ?: 0
+                        inputTokens = input,
+                        outputTokens = output,
+                        totalTokens = total
                     )
+                    metrics.recordLlmCall(input, output, total)
                 }
 
                 onToolCallStarting { eventContext ->
                     tokenUsageTracker.recordToolCall(eventContext.toolName)
+                    metrics.startTool(
+                        toolCallId = eventContext.toolCallId,
+                        toolName = eventContext.toolName,
+                        arguments = eventContext.toolArgs.toString()
+                    )
                     onToolStep(eventContext.toolName)
+                }
+
+                onToolCallCompleted { eventContext ->
+                    metrics.finishTool(
+                        toolCallId = eventContext.toolCallId,
+                        toolName = eventContext.toolName,
+                        status = ToolCallStatus.OK,
+                        resultSize = eventContext.toolResult?.toString()?.length ?: 0
+                    )
+                }
+
+                onToolCallFailed { eventContext ->
+                    metrics.finishTool(
+                        toolCallId = eventContext.toolCallId,
+                        toolName = eventContext.toolName,
+                        status = ToolCallStatus.ERROR,
+                        resultSize = 0
+                    )
                 }
             }
         }
@@ -152,11 +194,13 @@ class KrsAgent(
         agentInput: String,
         sessionId: String,
         semester: Int,
+        metrics: TurnMetrics = TurnMetrics(),
         onStep: (String) -> Unit = {},
         onDraftSaved: () -> Unit = {}
     ): String {
         val agent = buildAgent(
             systemPrompt = buildSystemPrompt(semester),
+            metrics = metrics,
             onToolStep = { toolName -> onStep(ToolStepLabels.labelFor(toolName)) },
             onDraftSaved = onDraftSaved
         )

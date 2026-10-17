@@ -1,330 +1,364 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { fetchChatHistory } from '../api/chatHistory';
-import type { ChatHistoryEntry, ChatHistoryResponse } from '../types/api';
+import { useEffect, useMemo, useState } from 'react';
+import type { ChatHistoryEntry } from '../types/api';
+import { fetchChatHistory } from '../api/monitoring';
+import { MonitoringLayout } from '../components/monitoring/MonitoringLayout';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Select,
+  StatusBadge,
+  ToolbarButton,
+} from '../components/monitoring/primitives';
+import {
+  IconArrowLeft,
+  IconChat,
+  IconClock,
+  IconRefresh,
+  IconSearch,
+  IconToken,
+} from '../components/monitoring/icons';
+import { useResource } from '../components/monitoring/useResource';
 import { Markdown } from '../components/Markdown';
-import { formatMinuteLabel, timeOf } from '../utils/datetime';
+import { formatDateTime, formatDuration, relativeTime, timeOf } from '../utils/datetime';
 import { formatInt as num } from '../utils/number';
-
-const LIMIT_OPTIONS = [
-  { value: 50, label: '50 terbaru' },
-  { value: 100, label: '100 terbaru' },
-  { value: 200, label: '200 terbaru' },
-  { value: 500, label: '500 terbaru' },
-];
 
 const REFRESH_MS = 30_000;
 
-const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
-  final: { label: 'Selesai', cls: 'bg-emerald-100 text-emerald-700' },
-  error: { label: 'Error', cls: 'bg-red-100 text-red-700' },
-  cancelled: { label: 'Dibatalkan', cls: 'bg-amber-100 text-amber-700' },
-};
+const LIMIT_OPTIONS = [
+  { value: 50, label: '50 giliran' },
+  { value: 100, label: '100 giliran' },
+  { value: 200, label: '200 giliran' },
+  { value: 500, label: '500 giliran' },
+];
 
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLE[status] ?? { label: status, cls: 'bg-neutral-100 text-neutral-600' };
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${s.cls}`}>{s.label}</span>;
-}
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'Semua status' },
+  { value: 'final', label: 'Selesai' },
+  { value: 'error', label: 'Error' },
+  { value: 'cancelled', label: 'Dibatalkan' },
+];
 
-/** Durasi ms -> teks ringkas (mis. "850 ms", "2,4 dtk"). */
-function fmtDuration(ms: number): string {
-  if (ms <= 0) return '-';
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} dtk`;
-}
-
-/**
- * Satu sesi percakapan: semua turn dengan session id yang sama, dikumpulkan jadi
- * satu kelompok. Ini mencegah turn dari dua user yang chat bersamaan tercampur
- * dalam satu daftar acak.
- */
-type ChatSession = {
+type Session = {
   key: string;
   sessionId: string;
   nim: string;
-  startTime: string; // turn paling awal di sesi ini (ISO UTC)
-  lastTime: string; // turn paling akhir di sesi ini (ISO UTC)
-  turns: ChatHistoryEntry[]; // urut kronologis (lama -> baru)
-  errorCount: number;
+  startTime: string;
+  lastTime: string;
+  turns: ChatHistoryEntry[];
+  errors: number;
+  tokens: number;
 };
 
-/**
- * Kelompokkan turn per session id, urutkan turn di dalam sesi secara kronologis,
- * lalu urutkan sesi berdasarkan aktivitas terakhir (terbaru di atas).
- * Timestamp berupa ISO-8601 UTC (berakhiran "Z") sehingga perbandingan leksikal
- * sudah setara dengan perbandingan waktu.
- */
-function groupSessions(entries: ChatHistoryEntry[]): ChatSession[] {
+function groupSessions(entries: ChatHistoryEntry[]): Session[] {
   const map = new Map<string, ChatHistoryEntry[]>();
-  for (const e of entries) {
-    // Turn tanpa session id diperlakukan sebagai sesi tersendiri agar tidak
-    // saling menempel.
-    const key = e.sessionId || `__no-session-${e.id}`;
-    const arr = map.get(key);
-    if (arr) arr.push(e);
-    else map.set(key, [e]);
+  for (const entry of entries) {
+    const key = entry.sessionId || `__no-session-${entry.id}`;
+    const list = map.get(key);
+    if (list) list.push(entry);
+    else map.set(key, [entry]);
   }
 
-  const sessions: ChatSession[] = [];
-  for (const [key, arr] of map) {
-    const sorted = [...arr].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
+  const sessions: Session[] = [];
+  for (const [key, list] of map) {
+    const sorted = [...list].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     sessions.push({
       key,
-      sessionId: first.sessionId,
-      nim: first.nim,
-      startTime: first.timestamp,
-      lastTime: last.timestamp,
+      sessionId: sorted[0].sessionId,
+      nim: sorted[0].nim,
+      startTime: sorted[0].timestamp,
+      lastTime: sorted[sorted.length - 1].timestamp,
       turns: sorted,
-      errorCount: sorted.filter((t) => t.status === 'error').length,
+      errors: sorted.filter((t) => t.status === 'error').length,
+      tokens: sorted.reduce((a, t) => a + (t.totalTokens ?? 0), 0),
     });
   }
-
   sessions.sort((a, b) => b.lastTime.localeCompare(a.lastTime));
   return sessions;
 }
 
-/** Detail satu turn (selalu tampil saat kartu sesi dibuka), urut sesuai percakapan. */
-function TurnDetail({ entry, index }: { entry: ChatHistoryEntry; index: number }) {
+function TurnCard({ entry, index }: { entry: ChatHistoryEntry; index: number }) {
+  const [showSteps, setShowSteps] = useState(false);
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-neutral-500">
-        <span className="font-semibold text-neutral-700">#{index + 1}</span>
+    <article className="rounded-2xl border border-neutral-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-neutral-400">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-100 text-[10px] font-bold text-neutral-600">
+          {index + 1}
+        </span>
         <StatusBadge status={entry.status} />
-        <span>&middot;</span>
         <span>{timeOf(entry.timestamp)}</span>
-        <span>&middot;</span>
+        <span className="text-neutral-300">|</span>
+        <span className="inline-flex items-center gap-1">
+          <IconClock size={12} /> {formatDuration(entry.durationMs)}
+        </span>
+        <span className="text-neutral-300">|</span>
+        <span className="inline-flex items-center gap-1">
+          <IconToken size={12} /> {num(entry.totalTokens ?? 0)}
+        </span>
+        {entry.model && (
+          <>
+            <span className="text-neutral-300">|</span>
+            <span className="font-mono">{entry.model}</span>
+          </>
+        )}
+        <span className="text-neutral-300">|</span>
         <span>{entry.streamed ? 'Streaming' : 'Non-stream'}</span>
-        <span>&middot;</span>
-        <span>{fmtDuration(entry.durationMs)}</span>
+      </header>
+
+      <div className="mt-3">
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+          Permintaan
+        </div>
+        <p className="mt-1 whitespace-pre-wrap break-words rounded-xl bg-neutral-50 px-3 py-2.5 text-[13px] leading-relaxed text-neutral-800">
+          {entry.request || '-'}
+        </p>
       </div>
 
-      <div className="mt-2 space-y-2.5">
-        <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Permintaan</div>
-          <pre className="whitespace-pre-wrap break-words rounded-lg bg-neutral-50 p-3 text-sm text-neutral-800">{entry.request || '-'}</pre>
+      <div className="mt-3">
+        <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+          Respons
         </div>
-
-        {entry.steps.length > 0 && (
-          <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-              Langkah ({entry.steps.length})
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {entry.steps.map((s, i) => (
-                <span
-                  key={`${entry.id}-step-${i}`}
-                  className="rounded-full bg-usu-light px-2 py-0.5 text-xs text-usu-dark"
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
+        {entry.response ? (
+          <div className="mt-1 rounded-xl border border-neutral-100 px-3 py-2.5 text-[13px]">
+            <Markdown content={entry.response} />
           </div>
+        ) : (
+          <p className="mt-1 rounded-xl bg-neutral-50 px-3 py-2.5 text-[13px] italic text-neutral-400">
+            Tidak ada respons (percakapan dibatalkan sebelum selesai).
+          </p>
         )}
+      </div>
 
-        <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Respons</div>
-          {entry.response ? (
-            <div className="rounded-lg border border-neutral-100 bg-white p-3">
-              <Markdown content={entry.response} />
-            </div>
-          ) : (
-            <div className="rounded-lg bg-neutral-50 p-3 text-sm italic text-neutral-400">
-              Tidak ada respons (percakapan dibatalkan sebelum selesai).
-            </div>
+      {entry.steps.length > 0 && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowSteps((v) => !v)}
+            className="text-[11px] font-semibold text-usu-dark transition hover:text-usu"
+          >
+            {showSteps ? 'Sembunyikan' : 'Lihat'} {entry.steps.length} langkah
+          </button>
+          {showSteps && (
+            <ol className="mt-2 flex flex-wrap gap-1.5">
+              {entry.steps.map((step, i) => (
+                <li
+                  key={`${entry.id}-step-${i}`}
+                  className="rounded-full bg-usu-light px-2.5 py-1 text-[11px] font-medium text-usu-dark"
+                >
+                  {i + 1}. {step}
+                </li>
+              ))}
+            </ol>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/** Kartu ringkas per sesi: NIM + waktu mulai + jumlah pesan. Klik untuk buka detail. */
-function SessionCard({ session }: { session: ChatSession }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <article className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-neutral-50"
-      >
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-usu-light text-sm font-bold text-usu-dark">
-          {session.nim ? session.nim.slice(-2) : '?'}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-neutral-900">NIM {session.nim || '-'}</span>
-            {session.errorCount > 0 && <StatusBadge status="error" />}
-          </div>
-          <div className="text-xs text-neutral-500">
-            Mulai {formatMinuteLabel(session.startTime)} &middot; {num(session.turns.length)} pesan
-          </div>
-        </div>
-        <span
-          className="hidden font-mono text-[11px] text-neutral-400 sm:inline"
-          title={`Session ${session.sessionId}`}
-        >
-          sesi {session.sessionId ? `${session.sessionId.slice(0, 8)}\u2026` : '-'}
-        </span>
-        <svg
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`shrink-0 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          aria-hidden="true"
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="space-y-3 border-t border-neutral-100 bg-neutral-50 px-4 py-4">
-          {session.turns.map((t, i) => (
-            <TurnDetail key={t.id} entry={t} index={i} />
-          ))}
-        </div>
       )}
+
+      <footer className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-neutral-100 pt-2 text-[10.5px] text-neutral-400">
+        <span>{num(entry.llmCalls ?? 0)} panggilan LLM</span>
+        <span>{num(entry.toolCalls ?? 0)} tool call</span>
+        <span>input {num(entry.inputTokens ?? 0)}</span>
+        <span>output {num(entry.outputTokens ?? 0)}</span>
+      </footer>
     </article>
   );
 }
 
 export function ChatHistoryPage() {
   const [limit, setLimit] = useState(100);
-  const [report, setReport] = useState<ChatHistoryResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [status, setStatus] = useState('all');
+  const [query, setQuery] = useState('');
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (showSpinner: boolean) => {
-      if (showSpinner) setLoading(true);
-      try {
-        const data = await fetchChatHistory(limit);
-        setReport(data);
-        setError(null);
-        setLastUpdated(new Date());
-      } catch {
-        setError('Gagal memuat riwayat. Pastikan server berjalan.');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [limit],
-  );
+  const resource = useResource(() => fetchChatHistory(limit), [limit], REFRESH_MS);
+  const entries = resource.data?.entries ?? [];
 
+  const sessions = useMemo(() => {
+    const filtered = entries.filter((e) => {
+      if (status !== 'all' && e.status !== status) return false;
+      if (!query.trim()) return true;
+      const q = query.trim().toLowerCase();
+      return (
+        e.nim.toLowerCase().includes(q) ||
+        e.request.toLowerCase().includes(q) ||
+        e.response.toLowerCase().includes(q)
+      );
+    });
+    return groupSessions(filtered);
+  }, [entries, status, query]);
+
+  // Keep the selection valid across refreshes; fall back to the newest session.
   useEffect(() => {
-    void load(true);
-  }, [load]);
+    if (sessions.length === 0) {
+      if (selectedKey !== null) setSelectedKey(null);
+      return;
+    }
+    if (!selectedKey || !sessions.some((s) => s.key === selectedKey)) {
+      setSelectedKey(sessions[0].key);
+    }
+  }, [sessions, selectedKey]);
 
-  const loadRef = useRef(load);
-  loadRef.current = load;
-  useEffect(() => {
-    const id = window.setInterval(() => void loadRef.current(false), REFRESH_MS);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const entries = report?.entries ?? [];
-  const sessions = useMemo(() => groupSessions(entries), [entries]);
+  const selected = sessions.find((s) => s.key === selectedKey) ?? null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-50">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-gradient-to-r from-usu to-usu-dark px-5 py-3.5 text-white shadow">
-        <div className="flex items-center gap-3">
-          <span className="font-bold">KRS Agent</span>
-          <span className="hidden text-sm text-white/80 sm:inline">Riwayat Chat</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Link to="/monitoring" className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/90 transition hover:bg-white/15">
-            Token
-          </Link>
-          <Link to="/dashboard" className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/90 transition hover:bg-white/15">
-            Dashboard
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-5">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-neutral-900">Riwayat Chat Pengguna</h1>
-            <p className="text-sm text-neutral-500">
-              Dikelompokkan per sesi (terbaru di atas). Klik kartu untuk melihat detail percakapan.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-neutral-600">
-              <span>Tampil</span>
-              <select
-                value={limit}
-                onChange={(e) => setLimit(Number(e.target.value))}
-                className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 outline-none focus:border-usu"
-              >
-                {LIMIT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => void load(true)}
-              className="rounded-lg bg-usu px-3 py-1.5 text-sm font-medium text-white transition hover:bg-usu-dark"
-            >
+    <MonitoringLayout>
+      <PageHeader
+        eyebrow="Monitoring"
+        title="Riwayat Percakapan"
+        description="Setiap giliran percakapan, dikelompokkan per sesi. Pilih sesi di kiri untuk membaca percakapan lengkap."
+        actions={
+          <>
+            <span className="text-[11px] text-neutral-400">
+              {resource.updatedAt
+                ? `Diperbarui ${resource.updatedAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`
+                : 'Memuat...'}
+            </span>
+            <ToolbarButton onClick={resource.reload} title="Muat ulang">
+              <IconRefresh size={15} />
               Muat ulang
-            </button>
+            </ToolbarButton>
+          </>
+        }
+      />
+
+      {resource.error && (
+        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {resource.error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className={`${selected ? 'hidden lg:block' : 'block'}`}>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+                <IconSearch size={15} />
+              </span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cari NIM atau isi pesan"
+                className="h-9 w-full rounded-full border border-neutral-200 bg-white pl-9 pr-3 text-xs text-neutral-700 outline-none transition placeholder:text-neutral-400 focus:border-usu"
+              />
+            </div>
+            <Select value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+          </div>
+
+          <div className="mb-3 flex items-center justify-between gap-2 px-1">
+            <span className="text-[11px] font-medium text-neutral-400">
+              {num(sessions.length)} sesi
+            </span>
+            <Select
+              value={limit}
+              onChange={(v) => setLimit(Number(v))}
+              options={LIMIT_OPTIONS}
+            />
+          </div>
+
+          <div className="max-h-[calc(100vh-15rem)] space-y-2 overflow-y-auto pr-1">
+            {sessions.length === 0 ? (
+              <Card>
+                <EmptyState
+                  title="Tidak ada sesi"
+                  description="Coba ubah filter atau mulai percakapan baru dengan agent."
+                  icon={<IconChat size={26} />}
+                />
+              </Card>
+            ) : (
+              sessions.map((session) => {
+                const active = session.key === selectedKey;
+                return (
+                  <button
+                    key={session.key}
+                    type="button"
+                    onClick={() => setSelectedKey(session.key)}
+                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                      active
+                        ? 'border-usu/40 bg-usu-light/70 shadow-[0_1px_2px_rgba(16,24,40,0.04)]'
+                        : 'border-neutral-200/90 bg-white hover:border-neutral-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                          active ? 'bg-usu text-white' : 'bg-neutral-100 text-neutral-600'
+                        }`}
+                      >
+                        {session.nim ? session.nim.slice(-2) : '?'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-[13px] font-semibold text-neutral-900">
+                            {session.nim || 'Tanpa NIM'}
+                          </span>
+                          {session.errors > 0 && <Badge tone="danger">{session.errors} error</Badge>}
+                        </div>
+                        <div className="text-[11px] text-neutral-500">
+                          {relativeTime(session.lastTime)} | {num(session.turns.length)} giliran
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center gap-3 text-[10.5px] text-neutral-400">
+                      <span className="inline-flex items-center gap-1">
+                        <IconToken size={11} /> {num(session.tokens)}
+                      </span>
+                      <span className="truncate font-mono">{session.sessionId.slice(0, 8) || '-'}</span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 
-        {report && (
-          <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
-            <span>
-              <span className="font-medium text-neutral-700">{num(sessions.length)}</span> sesi
-              {' '}&middot;{' '}
-              <span className="font-medium text-neutral-700">{num(report.count)}</span> pesan
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className={`inline-block h-2 w-2 rounded-full ${report.enabled ? 'bg-usu' : 'bg-neutral-300'}`} />
-              {report.enabled ? 'Penyimpanan aktif' : 'Penyimpanan nonaktif'}
-            </span>
-            {lastUpdated && <span>Diperbarui {lastUpdated.toLocaleTimeString('id-ID')}</span>}
-          </div>
-        )}
+        <div className={`${selected ? 'block' : 'hidden lg:block'}`}>
+          {!selected ? (
+            <Card>
+              <EmptyState
+                title="Pilih satu sesi"
+                description="Detail percakapan akan tampil di sini."
+                icon={<IconChat size={28} />}
+              />
+            </Card>
+          ) : (
+            <>
+              <div className="mb-4 rounded-2xl border border-neutral-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedKey(null)}
+                      aria-label="Kembali ke daftar sesi"
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition hover:bg-neutral-50 lg:hidden"
+                    >
+                      <IconArrowLeft size={17} />
+                    </button>
+                    <div>
+                      <div className="text-[15px] font-semibold text-neutral-900">
+                        NIM {selected.nim || '-'}
+                      </div>
+                      <div className="text-[11px] text-neutral-500">
+                        Mulai {formatDateTime(selected.startTime)} | {num(selected.turns.length)} giliran
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selected.errors > 0 && <Badge tone="danger">{selected.errors} error</Badge>}
+                    <Badge tone="info">{num(selected.tokens)} token</Badge>
+                    <Badge tone="neutral">sesi {selected.sessionId.slice(0, 8) || '-'}</Badge>
+                  </div>
+                </div>
+              </div>
 
-        {report && !report.enabled && (
-          <div className="mb-6 rounded-xl border border-gold-dark/30 bg-gold-light px-4 py-3 text-sm text-neutral-700">
-            &#9888; Penyimpanan riwayat nonaktif, jadi riwayat masih kosong. Pastikan konfigurasi
-            <code className="mx-1 rounded bg-white px-1">enabled</code> sudah benar lalu restart server.
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-        )}
-
-        {loading && !report ? (
-          <div className="flex h-72 items-center justify-center rounded-2xl border border-neutral-200 bg-white text-sm text-neutral-400 shadow-sm">
-            Memuat&hellip;
-          </div>
-        ) : sessions.length === 0 ? (
-          <div className="flex h-60 items-center justify-center rounded-2xl border border-neutral-200 bg-white text-sm text-neutral-400 shadow-sm">
-            Belum ada percakapan.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sessions.map((s) => (
-              <SessionCard key={s.key} session={s} />
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
+              <div className="space-y-3">
+                {selected.turns.map((turn, index) => (
+                  <TurnCard key={turn.id} entry={turn} index={index} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </MonitoringLayout>
   );
 }

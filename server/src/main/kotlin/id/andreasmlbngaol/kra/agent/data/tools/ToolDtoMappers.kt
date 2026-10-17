@@ -29,12 +29,13 @@ private fun Double.round2(): Double = round(this * 100.0) / 100.0
 // Domain model -> DTO mappers
 // ---------------------------------------------------------------------------
 
-fun Course.toDto(): CourseDto = CourseDto(
+fun Course.toDto(importance: Int? = null): CourseDto = CourseDto(
     code = code,
     name = name,
     sks = sks,
     normalSemester = normalSemester,
-    type = type
+    type = type,
+    importance = importance
 )
 
 fun ClassOffering.toDto(): ClassOfferingDto = ClassOfferingDto(

@@ -1,10 +1,25 @@
 # ---- OS / editor ----
 .DS_Store
 Thumbs.db
-.idea/
 *.iml
-.vscode/
 *.swp
+
+# ---- Agent / IDE tooling state (never commit) ----
+# Local metadata for AI agents and editors. None of this belongs to the project.
+.codebuddy/
+.claude/
+.cursor/
+.windsurf/
+.zed/
+.fleet/
+.nova/
+.idea/
+.vscode/
+.history/
+.continue/
+.gemini/
+.copilot/
+.aider*
 
 # ---- Logs ----
 *.log
