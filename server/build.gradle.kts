@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.koog.agents)
     implementation(libs.koog.agents.additions)
     implementation(libs.koog.http.client.ktor)
+    implementation(libs.koog.openrouter.client)
     // Force ktor 3.6.0 to fix Content-Length mismatch bug in 3.3.3 (koog 1.3.0 pins 3.3.3)
     implementation("io.ktor:ktor-client-core:3.6.0")
     implementation("io.ktor:ktor-client-apache5:3.6.0")

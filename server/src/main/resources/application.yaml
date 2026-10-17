@@ -21,7 +21,7 @@ server:
   port: ${PORT:8080}
 
 agent:
-  google-api-key: ${GOOGLE_API_KEY:}
+  openrouter-api-key: ${OPENROUTER_API_KEY:}
 
 jwt:
   secret: ${JWT_SECRET:dev-only-secret-change-me}

@@ -101,6 +101,12 @@ class AgentController(
         val body = StreamingResponseBody { out ->
             // Commit the response & send the first byte IMMEDIATELY so the client (and any
             // proxy) sees activity before the first tool runs.
+            //
+            // NB: since Spring Framework 7.0.6 the stream handed to StreamingResponseBody
+            // is non-flushing by default (ServletServerHttpResponse wraps it in
+            // StreamUtils.nonFlushing), which silently buffers the whole reply. Flushing is
+            // re-enabled by resources/spring.properties -> spring.http.response.flush.enabled.
+            // Do not remove that file, or these flushes become no-ops again.
             out.write('\n'.code)
             out.flush()
 

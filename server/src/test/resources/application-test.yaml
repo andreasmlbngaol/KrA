@@ -16,4 +16,4 @@ spring:
 
 # Dummy key so the KrsAgent bean can be constructed in tests (no LLM calls are made).
 agent:
-  google-api-key: test-key
+  openrouter-api-key: test-key

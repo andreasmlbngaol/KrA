@@ -9,7 +9,7 @@ Panduan konteks & kondisi proyek untuk Claude Code. Baca ini dulu sebelum menyen
 > ⚠️ **Ini VERSI AWAL dan MASIH JAUH DARI SELESAI.**
 
 Yang **sudah** ada:
-- Server Spring Boot fungsional: auth JWT, data akademik (KHS/KRS/kurikulum/kelas), agent AI (Koog + Gemini), observability token.
+- Server Spring Boot fungsional: auth JWT, data akademik (KHS/KRS/kurikulum/kelas), agent AI (Koog + OpenRouter), observability token.
 - Web app React fungsional: login, dashboard, KHS, kelola KRS, chat agent (streaming), monitoring.
 - Docker (prod + dev), seeder otomatis, Flyway migration, DB ter-expose untuk inspector.
 
@@ -124,7 +124,7 @@ Konvensi:
 
 - Persistensi: **Spring Data JPA + Hibernate**, `ddl-auto: validate` (schema dari Flyway, **bukan** auto-generate).
 - DB: **PostgreSQL 16**. Test: **H2** (in-memory).
-- Model LLM: **`GoogleModels.Gemini3_5FlashLite`** via `GoogleLLMClient` (butuh `GOOGLE_API_KEY`; fail-fast kalau kosong).
+- Model LLM: **`anthropic/claude-haiku-5.5`** via `OpenRouterLLMClient` (butuh `OPENROUTER_API_KEY`; fail-fast kalau kosong). Endpoint OpenRouter OpenAI-compatible (`https://openrouter.ai/api/v1/chat/completions`).
 
 **Frontend** (`app/package.json`):
 | Komponen | Versi |
@@ -270,7 +270,7 @@ Catatan desain penting:
 
 **Env:**
 - **Root `.env`** (prod) & **`.env.dev`** (dev, via `--env-file`). Server **tidak** memuat file `.env` sendiri — variabel disuntik lewat Compose. Untuk run lokal langsung, set env di shell/IDE.
-- `application.yaml` membaca: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `PORT` (default 8080), `GOOGLE_API_KEY`, `JWT_*`.
+- `application.yaml` membaca: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `PORT` (default 8080), `OPENROUTER_API_KEY`, `JWT_*`.
 - `app/.env` → `VITE_API_BASE_URL=/api`.
 
 **⚠️ Base image Docker DIPIN ke varian `-noble`** (`eclipse-temurin:25-jdk-noble` / `25-jre-noble`). Tag polos `eclipse-temurin:25-jre` pernah berganti varian Alpine↔Ubuntu dan memecahkan healthcheck (Alpine tanpa `bash`, Ubuntu tanpa `wget`). Healthcheck server pakai `bash -c '</dev/tcp/127.0.0.1/8083'`.
@@ -284,7 +284,7 @@ Catatan desain penting:
 ```bash
 # --- Server ---
 cd server
-./gradlew bootRun                 # run lokal (butuh env DB_URL/GOOGLE_API_KEY)
+./gradlew bootRun                 # run lokal (butuh env DB_URL/OPENROUTER_API_KEY)
 ./gradlew bootJar                 # build jar
 ./gradlew compileKotlin           # cek kompilasi cepat
 ./gradlew test                    # H2
