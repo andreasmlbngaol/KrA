@@ -292,8 +292,7 @@ with nginx.
 
 ## Using the app
 
-1. Log in with NIM and password. The seeded account is `230001` with password
-   `230001`.
+1. Log in with your NIM and password.
 2. Open **Informasi KHS** to see grades, IP, and IPK.
 3. Open **Kelola KRS** to review the draft, remove a course, print it, or submit
    it to the Dosen PA.
