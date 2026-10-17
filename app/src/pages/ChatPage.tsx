@@ -179,7 +179,7 @@ export function ChatPage({ closing, onClose }: ChatPageProps) {
     <div
       className={`${closing ? "chat-content-out" : "chat-content-in"} flex flex-col bg-white`}
     >
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 bg-gradient-to-r from-usu to-usu-dark px-5 text-white shadow">
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 bg-linear-to-r from-usu to-usu-dark px-5 text-white shadow-sm">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -223,7 +223,7 @@ export function ChatPage({ closing, onClose }: ChatPageProps) {
               <button
                 type="button"
                 onClick={() => void sendMessage(STARTER_PROMPT)}
-                className="ai-rainbow-btn inline-flex items-center gap-2 rounded-xl bg-usu px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-usu-dark"
+                className="ai-rainbow-btn inline-flex items-center gap-2 rounded-xl bg-usu px-5 py-3 text-sm font-semibold text-white shadow-xs transition hover:bg-usu-dark"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -247,7 +247,7 @@ export function ChatPage({ closing, onClose }: ChatPageProps) {
               <div className="mb-1 text-xs font-medium text-neutral-500">
                 KRS Agent
               </div>
-              <div className="ai-thinking rounded-2xl bg-white px-4 py-3 shadow-sm">
+              <div className="ai-thinking rounded-2xl bg-white px-4 py-3 shadow-xs">
                 {steps.length === 0 ? (
                   <span className="ai-thinking-text text-sm font-semibold">
                     KRS Agent sedang berpikir…
@@ -304,7 +304,7 @@ export function ChatPage({ closing, onClose }: ChatPageProps) {
               <button
                 type="button"
                 onClick={goToManageKrs}
-                className="ai-rainbow-btn inline-flex items-center gap-2 rounded-xl bg-usu px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-usu-dark"
+                className="ai-rainbow-btn inline-flex items-center gap-2 rounded-xl bg-usu px-5 py-3 text-sm font-semibold text-white shadow-xs transition hover:bg-usu-dark"
               >
                 Buka Halaman Kelola KRS
                 <svg
@@ -332,7 +332,7 @@ export function ChatPage({ closing, onClose }: ChatPageProps) {
         <div className="mx-auto flex max-w-5xl items-end gap-2">
           <textarea
             ref={inputRef}
-            className="max-h-40 flex-1 resize-none rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm focus:border-usu focus:outline-none focus:ring-2 focus:ring-usu/30"
+            className="max-h-40 flex-1 resize-none rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm focus:border-usu focus:outline-hidden focus:ring-2 focus:ring-usu/30"
             placeholder='Tulis pesan...  (di desktop: "/" untuk fokus, Enter kirim, Shift+Enter baris baru)'
             rows={1}
             value={input}

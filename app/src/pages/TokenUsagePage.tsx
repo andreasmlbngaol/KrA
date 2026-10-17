@@ -111,7 +111,7 @@ export function TokenUsagePage() {
       {report && !report.enabled && (
         <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Penyimpanan metrik nonaktif, jadi data masih kosong. Periksa konfigurasi
-          <code className="mx-1 rounded bg-white px-1">enabled</code> lalu restart server.
+          <code className="mx-1 rounded-sm bg-white px-1">enabled</code> lalu restart server.
         </div>
       )}
 

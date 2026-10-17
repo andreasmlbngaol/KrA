@@ -42,7 +42,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function StatCard({ label, value, highlight }: { label: string; value: ReactNode; highlight?: boolean }) {
   return (
-    <div className={`rounded-xl border p-4 ${highlight ? 'border-usu bg-usu text-white shadow-sm' : 'border-neutral-200 bg-white'}`}>
+    <div className={`rounded-xl border p-4 ${highlight ? 'border-usu bg-usu text-white shadow-xs' : 'border-neutral-200 bg-white'}`}>
       <div className={`text-2xl font-extrabold leading-none ${highlight ? 'text-white' : 'text-neutral-900'}`}>{value}</div>
       <div className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${highlight ? 'text-white/80' : 'text-neutral-400'}`}>{label}</div>
     </div>
@@ -126,7 +126,7 @@ export function ManageKrsPage() {
 
       {data && !loading && (
         <div className="space-y-6">
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs sm:p-6">
             <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-neutral-900">
               <span className="h-4 w-1 rounded-full bg-usu" />Detail Mahasiswa
             </h2>
@@ -144,7 +144,7 @@ export function ManageKrsPage() {
             </dl>
           </section>
 
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs sm:p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-base font-bold text-neutral-900">
                 <span className="h-4 w-1 rounded-full bg-usu" />Mata Kuliah Diambil
@@ -245,7 +245,7 @@ export function ManageKrsPage() {
                   <button
                     type="button"
                     onClick={() => setShowSubmitted(true)}
-                    className="rounded-lg bg-usu px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-usu-dark"
+                    className="rounded-lg bg-usu px-5 py-2.5 font-semibold text-white shadow-xs transition hover:bg-usu-dark"
                   >
                     Ajukan ke Dosen PA
                   </button>

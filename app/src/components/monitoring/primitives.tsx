@@ -211,7 +211,7 @@ export function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-full border border-neutral-200 bg-white px-3 pr-7 text-xs font-semibold text-neutral-700 outline-none transition focus:border-usu"
+        className="h-9 rounded-full border border-neutral-200 bg-white px-3 pr-7 text-xs font-semibold text-neutral-700 outline-hidden transition focus:border-usu"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

@@ -110,7 +110,7 @@ function TurnCard({ entry, index }: { entry: ChatHistoryEntry; index: number }) 
         <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
           Permintaan
         </div>
-        <p className="mt-1 whitespace-pre-wrap break-words rounded-xl bg-neutral-50 px-3 py-2.5 text-[13px] leading-relaxed text-neutral-800">
+        <p className="mt-1 whitespace-pre-wrap wrap-break-word rounded-xl bg-neutral-50 px-3 py-2.5 text-[13px] leading-relaxed text-neutral-800">
           {entry.request || '-'}
         </p>
       </div>
@@ -238,7 +238,7 @@ export function ChatHistoryPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Cari NIM atau isi pesan"
-                className="h-9 w-full rounded-full border border-neutral-200 bg-white pl-9 pr-3 text-xs text-neutral-700 outline-none transition placeholder:text-neutral-400 focus:border-usu"
+                className="h-9 w-full rounded-full border border-neutral-200 bg-white pl-9 pr-3 text-xs text-neutral-700 outline-hidden transition placeholder:text-neutral-400 focus:border-usu"
               />
             </div>
             <Select value={status} onChange={setStatus} options={STATUS_OPTIONS} />

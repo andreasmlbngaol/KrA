@@ -119,28 +119,28 @@ Konvensi:
 | kotlinx-coroutines | 1.11.0 (dipaksa untuk kompat ktor 3.6.0) |
 | kotlinx-serialization | 1.11.0 |
 | PostgreSQL driver | 42.7.14 |
-| Flyway | 13.10.0 |
+| Flyway | 13.10.3 |
 | java-jwt (auth0) | 4.6.2 |
 | springdoc-openapi | 3.1.1 |
 | Hibernate | 7.4.5 (via SB4) |
 
 - Persistensi: **Spring Data JPA + Hibernate**, `ddl-auto: validate` (schema dari Flyway, **bukan** auto-generate).
-- DB: **PostgreSQL 16**. Test: **H2** (in-memory).
+- DB: **PostgreSQL 18**. Test: **H2** (in-memory).
 - Model LLM: **`anthropic/claude-haiku-5.5`** via `OpenRouterLLMClient` (butuh `OPENROUTER_API_KEY`; fail-fast kalau kosong). Endpoint OpenRouter OpenAI-compatible (`https://openrouter.ai/api/v1/chat/completions`).
 
 **Frontend** (`app/package.json`):
 | Komponen | Versi |
 |---|---|
-| React / React DOM | 19.2.8 |
-| react-router-dom | 7.5.0 |
+| React / React DOM | 19.3.1 |
+| react-router-dom | 7.18.4 |
 | Vite | 8.3.4 |
-| TypeScript | ~6.0.2 |
-| Tailwind CSS | 3.4 |
+| TypeScript | ~7.0.2 |
+| Tailwind CSS | 4.3.3 |
 | axios | ^1.7.7 |
 | goey-toast | ^0.5.0 |
-| react-markdown / remark-gfm | ^9.0.1 / ^4.0.0 |
-| oxlint | ^1.81.0 |
-| **Package manager** | **bun** (1.4.x) — **JANGAN pakai node/npm** |
+| react-markdown / remark-gfm | ^10.1.0 / ^4.0.1 |
+| oxlint | ^1.88.0 |
+| **Package manager** | **bun** (1.4.3) — **JANGAN pakai node/npm** |
 
 > ⚠️ **Frontend WAJIB pakai `bun`.** Install `bun install`, build `bun run build`, dev `bun run dev`.
 
@@ -298,8 +298,8 @@ Catatan desain penting:
 ## 10. Docker & Environment
 
 **Compose:**
-- `docker-compose.yml` → project **`kra-prod`**: postgres (127.0.0.1:5433, volume `kra_pgdata`) + server (internal :8083, healthcheck) + app (`${WEB_PORT:-80}:80`). Server internal-only (diakses nginx).
-- `docker-compose.dev.yml` → project **`kra-dev`**: port 5434 / 8081 / 5173, bind-mount source, volume `kra_pgdata_dev` + `kra_gradle_cache_dev`, Vite HMR.
+- `docker-compose.yml` → project **`kra-prod`**: postgres 18 (127.0.0.1:5433, volume `kra_pgdata18`) + server (internal :8083, healthcheck) + app (`${WEB_PORT:-80}:80`). Server internal-only (diakses nginx).
+- `docker-compose.dev.yml` → project **`kra-dev`**: port 5434 / 8081 / 5173, bind-mount source, volume `kra_pgdata_dev18` + `kra_gradle_cache_dev`, Vite HMR.
 
 **Env:**
 - **Root `.env`** (prod) & **`.env.dev`** (dev, via `--env-file`). Server **tidak** memuat file `.env` sendiri — variabel disuntik lewat Compose. Untuk run lokal langsung, set env di shell/IDE.

@@ -66,7 +66,7 @@ export function PortalLayout({ children, periodLabel, studentName }: PortalLayou
 
   return (
     <div className="min-h-screen bg-neutral-100">
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-2 bg-gradient-to-r from-usu to-usu-dark px-3 text-white shadow sm:gap-3 sm:px-5">
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-2 bg-linear-to-r from-usu to-usu-dark px-3 text-white shadow-sm sm:gap-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -86,7 +86,7 @@ export function PortalLayout({ children, periodLabel, studentName }: PortalLayou
           <div className="font-semibold">{today}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2 rounded-full bg-white py-1 pl-1.5 pr-1.5 text-neutral-700 shadow-sm sm:pr-3">
+          <div className="flex items-center gap-2 rounded-full bg-white py-1 pl-1.5 pr-1.5 text-neutral-700 shadow-xs sm:pr-3">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-300 text-white">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>
             </span>

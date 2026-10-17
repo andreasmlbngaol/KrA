@@ -14,7 +14,7 @@ export function ChatMessage({ message }: { message: ChatMessageItem }) {
       <div className={`mb-1 text-xs font-medium ${isUser ? 'text-usu' : 'text-neutral-500'}`}>
         {isUser ? 'Kamu' : 'KRS Agent'}
       </div>
-      <div className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${bubble}`}>
+      <div className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-xs ${bubble}`}>
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (

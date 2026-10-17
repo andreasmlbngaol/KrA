@@ -40,7 +40,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-usu to-usu-dark px-4">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-usu to-usu-dark px-4">
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-sm rounded-2xl border-t-4 border-gold bg-white p-7 shadow-xl"
@@ -54,7 +54,7 @@ export function LoginPage() {
         <label className="mb-4 block">
           <span className="mb-1 block text-sm font-medium text-neutral-700">NIM</span>
           <input
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-usu focus:outline-none focus:ring-2 focus:ring-usu/30"
+            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-usu focus:outline-hidden focus:ring-2 focus:ring-usu/30"
             type="text"
             inputMode="numeric"
             autoComplete="username"
@@ -68,7 +68,7 @@ export function LoginPage() {
         <label className="mb-4 block">
           <span className="mb-1 block text-sm font-medium text-neutral-700">Password</span>
           <input
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-usu focus:outline-none focus:ring-2 focus:ring-usu/30"
+            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-usu focus:outline-hidden focus:ring-2 focus:ring-usu/30"
             type="password"
             autoComplete="current-password"
             placeholder="Password"

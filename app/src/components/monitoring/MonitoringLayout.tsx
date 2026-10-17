@@ -76,7 +76,7 @@ export function MonitoringLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[#f6f8f7] text-neutral-900">
       {/* Top app bar (compact + medium screens) */}
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-neutral-200/80 bg-[#f6f8f7]/90 px-3 backdrop-blur md:hidden">
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-neutral-200/80 bg-[#f6f8f7]/90 px-3 backdrop-blur-sm md:hidden">
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
@@ -102,7 +102,7 @@ export function MonitoringLayout({ children }: { children: ReactNode }) {
                 key={item.to}
                 to={item.to}
                 aria-current={active ? 'page' : undefined}
-                className="group flex w-full flex-col items-center gap-1 py-1.5 outline-none"
+                className="group flex w-full flex-col items-center gap-1 py-1.5 outline-hidden"
               >
                 <span
                   className={`flex h-8 w-14 items-center justify-center rounded-full transition ${

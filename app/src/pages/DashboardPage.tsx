@@ -70,7 +70,7 @@ export function DashboardPage() {
     <PortalLayout periodLabel={periodLabel} studentName={khs?.name}>
       <div className="mb-4 text-sm text-neutral-500">Beranda</div>
 
-      <section className="mb-5 flex items-center gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <section className="mb-5 flex items-center gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs">
         <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-neutral-200 text-neutral-400">
           <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth={1.6}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>
         </div>
@@ -91,7 +91,7 @@ export function DashboardPage() {
 
       {!loading && !error && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs">
             <h3 className="mb-4 text-base font-bold text-neutral-900">Jadwal Kuliah</h3>
             <div className="mb-4 flex flex-wrap gap-2">
               {DAYS.map((d) => {
@@ -132,7 +132,7 @@ export function DashboardPage() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs">
             <h3 className="mb-4 text-base font-bold text-neutral-900">KHS</h3>
             {!khs || khs.semesters.length === 0 ? (
               <p className="text-sm text-neutral-400">Belum ada data KHS.</p>
@@ -142,7 +142,7 @@ export function DashboardPage() {
                   <select
                     value={selectedSem ?? ''}
                     onChange={(e) => setSelectedSem(Number(e.target.value))}
-                    className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 focus:border-usu focus:outline-none"
+                    className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 focus:border-usu focus:outline-hidden"
                   >
                     {khs.semesters.map((s) => (
                       <option key={s.semester} value={s.semester}>

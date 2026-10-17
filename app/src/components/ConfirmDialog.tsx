@@ -48,7 +48,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 px-4"
       role="dialog"
       aria-modal="true"
       onClick={() => {
@@ -79,7 +79,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`flex-1 rounded-lg px-4 py-2.5 font-semibold text-white shadow-sm transition disabled:opacity-50 ${confirmBtn}`}
+            className={`flex-1 rounded-lg px-4 py-2.5 font-semibold text-white shadow-xs transition disabled:opacity-50 ${confirmBtn}`}
           >
             {busy ? 'Memproses...' : confirmLabel}
           </button>

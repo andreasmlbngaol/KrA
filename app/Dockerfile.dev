@@ -2,7 +2,7 @@
 #
 # Development image for the web client (Vite dev server + HMR).
 #
-FROM oven/bun:1-alpine
+FROM oven/bun:1.4.3-alpine
 WORKDIR /workspace/app
 EXPOSE 5173
 CMD ["sh", "-c", "bun install && bun run dev -- --host"]

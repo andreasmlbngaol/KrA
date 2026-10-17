@@ -4,7 +4,7 @@
 # Build context is ./app (see docker-compose.yml).
 
 # ---- Stage 1: build the static production bundle ----
-FROM oven/bun:1-alpine AS build
+FROM oven/bun:1.4.3-alpine AS build
 WORKDIR /build
 # Install deps first for better layer caching.
 COPY package.json bun.lock ./
@@ -14,7 +14,7 @@ COPY . .
 RUN bun run build
 
 # ---- Stage 2: serve with nginx ----
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.30-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /build/dist /usr/share/nginx/html
 EXPOSE 80
