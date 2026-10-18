@@ -4,6 +4,7 @@ import id.andreasmlbngaol.kra.agent.domain.model.EvaluationCase
 import id.andreasmlbngaol.kra.agent.domain.model.EvaluationRunRecord
 import id.andreasmlbngaol.kra.agent.domain.model.EvaluationRunResult
 import id.andreasmlbngaol.kra.agent.domain.model.EvaluationSummary
+import id.andreasmlbngaol.kra.agent.domain.model.RecordedToolCall
 import id.andreasmlbngaol.kra.agent.domain.model.SurveyInstrument
 import id.andreasmlbngaol.kra.agent.domain.model.SurveyResponseRecord
 import id.andreasmlbngaol.kra.agent.domain.model.SurveyScores
@@ -19,8 +20,8 @@ interface EvaluationRepository {
 
     fun listCases(): List<EvaluationCase>
 
-    /** Tool names invoked in one chat turn, in order. */
-    fun toolNamesForChat(chatId: String): List<String>
+    /** Tool calls (name and arguments) invoked in one chat turn, in order. */
+    fun toolCallsForChat(chatId: String): List<RecordedToolCall>
 
     fun recordRun(result: EvaluationRunResult, notes: String? = null)
 

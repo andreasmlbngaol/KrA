@@ -1,5 +1,7 @@
 package id.andreasmlbngaol.kra.agent.domain.model
 
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.time.Instant
 
 /** One evaluation scenario (ground truth) used to measure agent quality. */
@@ -15,6 +17,52 @@ data class EvaluationCase(
     val expectedCourseCodes: List<String> = emptyList(),
     val active: Boolean = true,
     val createdAt: Instant = Instant.EPOCH
+)
+
+/**
+ * One expected tool call: the tool name plus the arguments that must be present.
+ *
+ * Entries in [EvaluationCase.expectedTools] are either a bare name ("getKhs") or a name
+ * with required arguments ("getKhs?semester=4"). Only the arguments written in the case
+ * are checked; anything else the agent passes is ignored, so a case stays readable.
+ */
+data class ToolCallExpectation(
+    val tool: String,
+    val arguments: Map<String, String> = emptyMap()
+) {
+    /** Expectations with more arguments are matched first so a loose one cannot steal them. */
+    val specificity: Int get() = arguments.size
+
+    companion object {
+        fun parse(raw: String): ToolCallExpectation {
+            val text = raw.trim()
+            require(text.isNotEmpty()) { "Nama tool pada expectedTools tidak boleh kosong" }
+            val separator = text.indexOf('?')
+            if (separator < 0) return ToolCallExpectation(text)
+
+            val tool = text.substring(0, separator).trim()
+            require(tool.isNotEmpty()) { "Nama tool tidak valid: $raw" }
+
+            val arguments = text.substring(separator + 1)
+                .split('&')
+                .filter { it.isNotBlank() }
+                .associate { pair ->
+                    val equals = pair.indexOf('=')
+                    require(equals > 0) { "Argumen tidak valid pada '$raw': $pair" }
+                    decode(pair.substring(0, equals)) to decode(pair.substring(equals + 1))
+                }
+            return ToolCallExpectation(tool, arguments)
+        }
+
+        private fun decode(value: String): String =
+            URLDecoder.decode(value, StandardCharsets.UTF_8)
+    }
+}
+
+/** One tool invocation actually recorded for a chat turn. */
+data class RecordedToolCall(
+    val tool: String,
+    val arguments: Map<String, String> = emptyMap()
 )
 
 /** Result of comparing one agent run against an [EvaluationCase]. */

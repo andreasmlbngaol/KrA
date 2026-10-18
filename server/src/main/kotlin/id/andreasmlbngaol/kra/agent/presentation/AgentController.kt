@@ -7,6 +7,7 @@ import id.andreasmlbngaol.kra.agent.domain.model.AgentToolCallLog
 import id.andreasmlbngaol.kra.agent.domain.model.TurnMetrics
 import id.andreasmlbngaol.kra.agent.domain.repository.ChatHistoryRepository
 import id.andreasmlbngaol.kra.agent.domain.repository.ToolCallLogRepository
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import id.andreasmlbngaol.kra.agent.presentation.dto.ChatRequest
 import id.andreasmlbngaol.kra.agent.presentation.dto.ChatStreamEvent
 import id.andreasmlbngaol.kra.core.enums.ChatStreamEventType
@@ -50,7 +51,8 @@ class AgentController(
     private val studentUseCase: StudentUseCase,
     private val chatHistory: ChatHistoryRepository,
     private val toolCallLog: ToolCallLogRepository,
-    private val llModel: LLModel
+    private val llModel: LLModel,
+    private val sessionTokens: SessionTokenRegistry
 ) {
 
     /** Non-streaming fallback: returns the agent's final reply as plain text. */
@@ -70,7 +72,7 @@ class AgentController(
             val metrics = TurnMetrics()
             try {
                 val response = krsAgent.run(
-                    agentInput = buildContextualMessage(nim, request.message),
+                    agentInput = buildContextualMessage(sessionTokens.issue(nim, request.sessionId), request.message),
                     sessionId = request.sessionId,
                     semester = student.semester,
                     metrics = metrics,
@@ -84,7 +86,7 @@ class AgentController(
                 }
                 val finalResponse = ensureQuestionAnswered(
                     agent = krsAgent,
-                    nim = nim,
+                    sessionToken = sessionTokens.issue(nim, request.sessionId),
                     message = request.message,
                     response = response,
                     semester = student.semester,
@@ -137,7 +139,7 @@ class AgentController(
                 val runJob = launch {
                     try {
                         val response = krsAgent.run(
-                            agentInput = buildContextualMessage(nim, request.message),
+                            agentInput = buildContextualMessage(sessionTokens.issue(nim, request.sessionId), request.message),
                             sessionId = request.sessionId,
                             semester = student.semester,
                             metrics = metrics,
@@ -156,7 +158,7 @@ class AgentController(
                         } else {
                             val finalResponse = ensureQuestionAnswered(
                                 agent = krsAgent,
-                                nim = nim,
+                                sessionToken = sessionTokens.issue(nim, request.sessionId),
                                 message = request.message,
                                 response = response,
                                 semester = student.semester,
@@ -260,10 +262,10 @@ class AgentController(
     }
 }
 
-/** Injects the verified NIM as system context so the agent won't ask for it. */
-private fun buildContextualMessage(nim: String, message: String): String = buildString {
-    appendLine("[KONTEKS SISTEM TERVERIFIKASI - NIM mahasiswa yang sedang login: $nim.")
-    appendLine("Gunakan NIM ini untuk semua pemanggilan tool; JANGAN meminta NIM ke mahasiswa.]")
+/** Injects the session token as system context; the NIM itself never reaches the LLM. */
+private fun buildContextualMessage(sessionToken: String, message: String): String = buildString {
+    appendLine("[KONTEKS SISTEM TERVERIFIKASI - Token sesi mahasiswa: $sessionToken.")
+    appendLine("Gunakan token ini sebagai argumen sessionToken pada SEMUA pemanggilan tool; JANGAN meminta NIM atau token ke mahasiswa.]")
     appendLine()
     append(message)
     // Recency matters: the reminder goes AFTER the user message so the model reads it last.
@@ -318,7 +320,7 @@ private fun extractQuestions(message: String): String {
  */
 private suspend fun ensureQuestionAnswered(
     agent: KrsAgent,
-    nim: String,
+    sessionToken: String,
     message: String,
     response: String,
     semester: Int,
@@ -329,7 +331,7 @@ private suspend fun ensureQuestionAnswered(
         return response
     }
     val repairInput = buildContextualMessage(
-        nim,
+        sessionToken,
         "[INSTRUKSI SISTEM: Ini hanya pertanyaan lanjutan. JANGAN menyusun draft dan " +
             "JANGAN menampilkan daftar matkul. Jawab pertanyaan berikut dalam 1-3 kalimat. " +
             "Jika pertanyaannya bisa/tidak, awali dengan \"Bisa.\" atau \"Tidak bisa.\".]\n\n" +

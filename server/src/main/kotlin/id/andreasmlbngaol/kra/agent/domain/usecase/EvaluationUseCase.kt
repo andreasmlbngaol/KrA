@@ -10,6 +10,7 @@ import id.andreasmlbngaol.kra.agent.domain.model.SurveyInstrument
 import id.andreasmlbngaol.kra.agent.domain.model.SurveyResponseRecord
 import id.andreasmlbngaol.kra.agent.domain.model.SurveyScoring
 import id.andreasmlbngaol.kra.agent.domain.model.SurveySummary
+import id.andreasmlbngaol.kra.agent.domain.model.ToolCallExpectation
 import id.andreasmlbngaol.kra.agent.domain.repository.EvaluationRepository
 import id.andreasmlbngaol.kra.agent.domain.repository.SurveyRepository
 import id.andreasmlbngaol.kra.core.error.BadRequestException
@@ -43,6 +44,15 @@ class EvaluationUseCase(
         if (min != null && max != null && min > max) {
             throw BadRequestException("expectedMinSks tidak boleh lebih besar dari expectedMaxSks")
         }
+        // Fail at authoring time: a malformed expectation would otherwise be scored as a
+        // miss and silently depress the metric.
+        case.expectedTools.forEach { raw ->
+            try {
+                ToolCallExpectation.parse(raw)
+            } catch (e: IllegalArgumentException) {
+                throw BadRequestException("expectedTools tidak valid: undefined")
+            }
+        }
         return evaluationRepository.saveCase(case)
     }
 
@@ -65,8 +75,10 @@ class EvaluationUseCase(
         val case = evaluationRepository.findCase(caseCode)
             ?: throw BadRequestException("Case evaluasi '$caseCode' tidak ditemukan")
 
-        val actualTools = chatId?.let { evaluationRepository.toolNamesForChat(it) } ?: emptyList()
-        val scores = EvaluationMetrics.toolScores(case.expectedTools, actualTools)
+        val actualCalls = chatId?.let { evaluationRepository.toolCallsForChat(it) } ?: emptyList()
+        val expectedCalls = case.expectedTools.map { ToolCallExpectation.parse(it) }
+        val scores = EvaluationMetrics.toolScores(expectedCalls, actualCalls)
+        val actualTools = actualCalls.map { it.tool }.distinct()
         val result = EvaluationRunResult(
             caseCode = case.code,
             chatId = chatId,

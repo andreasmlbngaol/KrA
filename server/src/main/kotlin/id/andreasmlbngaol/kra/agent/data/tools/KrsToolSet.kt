@@ -1,5 +1,6 @@
 package id.andreasmlbngaol.kra.agent.data.tools
 
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import id.andreasmlbngaol.kra.academic.domain.model.KrsValidationResult
@@ -16,13 +17,14 @@ import java.util.UUID
 class KrsToolSet(
     private val krsUseCase: KrsUseCase,
     private val krsValidationUseCase: KrsValidationUseCase,
+    sessions: SessionTokenRegistry,
     /**
      * Invoked right after a KRS draft is successfully saved (passed validation). The
      * streaming layer uses it to emit a "draftSaved" event so the UI can show a shortcut.
      * Defaults to a no-op so the tool set can be built without a callback.
      */
     private val onDraftSaved: () -> Unit = {}
-) : LoggingToolSet() {
+) : LoggingToolSet(sessions) {
 
     /** Returns the saved KRS draft for a semester. */
     @Tool
@@ -30,9 +32,10 @@ class KrsToolSet(
         "Isi draft KRS tersimpan untuk semester tertentu. Cek di awal apakah sudah ada draft, dan untuk menampilkan isi KRS sebelum diajukan ke Dosen PA. JSON {semester, exists, totalSks, items:[{classOfferingId, courseCode, courseName, classCode, room, day, startTime, endTime, sks}]}. exists=false = belum ada draft; field jadwal null = TBD."
     )
     suspend fun getKrsDraft(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester berjalan") semester: Int
     ): String {
+        val nim = resolveNim("getKrsDraft", sessionToken) ?: return sessionExpired()
         logCall("getKrsDraft", "nim=$nim, semester=$semester")
         val items = krsUseCase.getKrsDraftDetails(nim, semester)
         return logResult(
@@ -55,10 +58,11 @@ class KrsToolSet(
         "Menyimpan draft KRS dari daftar UUID course class (dipisah koma). Panggil HANYA setelah konfirmasi eksplisit mahasiswa. Otomatis memvalidasi dulu: bila bentrok jadwal / pelanggaran prasyarat / over kuota / matkul ganda, draft TIDAK disimpan dan dikembalikan daftar masalahnya. UUID didapat dari getCourseClasses. JSON {status, savedCourseCount, message, validation:{...}}. status SAVED jika tersimpan, REJECTED jika ditolak validasi."
     )
     suspend fun saveDraftKrs(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Daftar UUID course class yang dipilih, dipisahkan koma. Contoh: uuid1,uuid2,uuid3") courseClassIds: String,
         @LLMDescription("Semester berjalan") semester: Int
     ): String {
+        val nim = resolveNim("saveDraftKrs", sessionToken) ?: return sessionExpired()
         logCall("saveDraftKrs", "nim=$nim, semester=$semester, courseClassIds=$courseClassIds")
         return try {
             val ids = courseClassIds.split(",").map { UUID.fromString(it.trim()) }
@@ -146,10 +150,11 @@ class KrsToolSet(
         "Validasi draft KRS (daftar UUID course class dipisah koma): total SKS, batas, SKS disisihkan MKWU, sisa kuota, bentrok jadwal, pelanggaran prasyarat. WAJIB dipanggil sebelum saveDraftKrs; jangan cek SKS/jadwal/prasyarat manual. JSON {totalSks, maxSks, mkwuReservedSks, remainingSks, overQuota, scheduleConflicts:[{classA, classB, day}], prerequisiteViolations:[{courseCode, missingPrerequisites}], duplicateCourses:[{courseCode, courseName, classCodes}], valid}. valid=true boleh disimpan; overQuota=true = SKS melebihi kuota; duplicateCourses tidak kosong = ada matkul terpilih lebih dari sekali (mis. kode sama beda KOM) sehingga draft DITOLAK."
     )
     suspend fun validateKrsDraft(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester berjalan") semester: Int,
         @LLMDescription("Daftar UUID course class yang dipilih, dipisahkan koma. Contoh: uuid1,uuid2,uuid3") courseClassIds: String
     ): String {
+        val nim = resolveNim("validateKrsDraft", sessionToken) ?: return sessionExpired()
         logCall("validateKrsDraft", "nim=$nim, semester=$semester, courseClassIds=$courseClassIds")
         return try {
             val ids = courseClassIds.split(",").map { UUID.fromString(it.trim()) }

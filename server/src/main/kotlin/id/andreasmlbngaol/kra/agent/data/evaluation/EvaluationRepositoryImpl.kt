@@ -9,10 +9,13 @@ import id.andreasmlbngaol.kra.agent.domain.model.EvaluationCase
 import id.andreasmlbngaol.kra.agent.domain.model.EvaluationRunRecord
 import id.andreasmlbngaol.kra.agent.domain.model.EvaluationRunResult
 import id.andreasmlbngaol.kra.agent.domain.model.EvaluationSummary
+import id.andreasmlbngaol.kra.agent.domain.model.RecordedToolCall
 import id.andreasmlbngaol.kra.agent.domain.repository.EvaluationRepository
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Limit
 import org.springframework.stereotype.Repository
@@ -69,17 +72,28 @@ class EvaluationRepositoryImpl(
         emptyList()
     }
 
-    override fun toolNamesForChat(chatId: String): List<String> {
+    override fun toolCallsForChat(chatId: String): List<RecordedToolCall> {
         val id = runCatching { UUID.fromString(chatId) }.getOrNull() ?: return emptyList()
         return runCatching {
             toolCallRepo.findByChatIdOrderBySeqAsc(id)
-                .map { it.toolName }
+                .map { RecordedToolCall(it.toolName, parseArguments(it.arguments)) }
                 .distinct()
         }.getOrElse {
             logger.warn("Gagal membaca tool call untuk chat {}: {}", chatId, it.message)
             emptyList()
         }
     }
+
+    /**
+     * Flattens the stored argument JSON into a string map. Tools only take scalar
+     * arguments, so nested objects are not expected; anything unparsable is treated as
+     * "no arguments" rather than failing the whole measurement.
+     */
+    private fun parseArguments(raw: String): Map<String, String> = runCatching {
+        json.parseToJsonElement(raw).jsonObject.mapNotNull { (key, value) ->
+            (value as? JsonPrimitive)?.let { key to it.content }
+        }.toMap()
+    }.getOrDefault(emptyMap())
 
     override fun recordRun(result: EvaluationRunResult, notes: String?) {
         // The use case resolves the case first; a miss here means the row vanished mid-flight.

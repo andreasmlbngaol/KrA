@@ -1,5 +1,6 @@
 package id.andreasmlbngaol.kra.agent.data.tools
 
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import org.springframework.stereotype.Component
@@ -16,24 +17,26 @@ import id.andreasmlbngaol.kra.core.enums.Grade
 @Component
 class KhsToolSet(
     private val khsUseCase: KhsUseCase,
-    private val courseUseCase: CourseUseCase
-) : LoggingToolSet() {
+    private val courseUseCase: CourseUseCase,
+    sessions: SessionTokenRegistry
+) : LoggingToolSet(sessions) {
 
     /** Returns the student's complete grade history (KHS) across all semesters. */
     @Tool
     @LLMDescription(
-        "Riwayat nilai (KHS) lengkap mahasiswa dari semua semester. Ambil sendiri, jangan tanya mahasiswa. JSON {nim, totalEntries, entries:[{courseCode, semesterTaken, grade}]}."
+        "Riwayat nilai (KHS) lengkap mahasiswa dari semua semester. Ambil sendiri, jangan tanya mahasiswa. JSON {totalEntries, entries:[{courseCode, semesterTaken, grade}]}."
     )
     suspend fun getKhs(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String
     ): String {
+        val nim = resolveNim("getKhs", sessionToken) ?: return sessionExpired()
         logCall("getKhs", "nim=$nim")
         val entries = khsUseCase.getKhsByNim(nim).map {
             KhsEntryDto(courseCode = it.courseCode, semesterTaken = it.semesterTaken, grade = it.grade)
         }
         return logResult(
             "getKhs",
-            KhsResponse(nim = nim, totalEntries = entries.size, entries = entries).toJson()
+            KhsResponse(totalEntries = entries.size, entries = entries).toJson()
         )
     }
 
@@ -43,9 +46,10 @@ class KhsToolSet(
         "IP semester tertentu + batas SKS maksimal semester berikutnya (sudah dihitung sistem dari IP; 24 bila belum ada IP sebelumnya). Pakai batas SKS apa adanya, jangan petakan IP->SKS manual. JSON {semester, ip, maxSksNextSemester}."
     )
     suspend fun getIpSemester(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester yang ingin dihitung IP-nya (semester sebelum semester berjalan)") semester: Int
     ): String {
+        val nim = resolveNim("getIpSemester", sessionToken) ?: return sessionExpired()
         logCall("getIpSemester", "nim=$nim, semester=$semester")
         val ip = khsUseCase.getIpSemester(nim, semester)
         val maxSks = khsUseCase.getMaxSks(nim, semester)
@@ -61,8 +65,9 @@ class KhsToolSet(
         "Total SKS lulus akumulatif (E & T tidak dihitung). Untuk cek syarat Min SKS matkul puncak. Jangan hitung manual. JSON {totalPassedSks}."
     )
     suspend fun getTotalPassedSks(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String
     ): String {
+        val nim = resolveNim("getTotalPassedSks", sessionToken) ?: return sessionExpired()
         logCall("getTotalPassedSks", "nim=$nim")
         return logResult(
             "getTotalPassedSks",
@@ -86,9 +91,10 @@ class KhsToolSet(
             "JSON {totalCourses, dGradeSks, dGradeMaxSks, dRepeatMinSks, courses:[{code, name, sks, bestGrade, mustRepeat, dRepeatMandatory, recommendedForRepeat, status, importance, unlocksCount, unlocks, mbkmEligible, recognitionSemester}]}."
     )
     suspend fun getRepeatableCourses(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester mahasiswa saat ini") semester: Int
     ): String {
+        val nim = resolveNim("getRepeatableCourses", sessionToken) ?: return sessionExpired()
         logCall("getRepeatableCourses", "nim=$nim, semester=$semester")
         val dSks = courseUseCase.getDSks(nim)
         val dRepeatMin = AcademicRules.dRepeatMinSks(dSks)

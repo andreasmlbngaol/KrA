@@ -34,7 +34,7 @@ Berlaku **HANYA semester 7** (dan mahasiswa yang belum menyelesaikannya di semes
 - Bila ILK4202 **sudah LULUS** di KHS → anggap selesai, jangan singgung; fokus ke TA.
 - Bila **BELUM lulus/belum pernah diambil** → bahas KP secara proaktif, tetapi tetap jalankan **gerbang riwayat magang** di bawah.
 
-Gunakan `getCapstoneCourses(nim)` untuk mengecek kelayakan Min SKS (`eligible`), **JANGAN** membandingkan SKS lulus dengan Min SKS secara manual. **CATATAN:** `eligible` HANYA berdasarkan total SKS lulus. Sistem **tidak tahu** status magang, itu **WAJIB ditanyakan**.
+Gunakan `getCapstoneCourses(sessionToken)` untuk mengecek kelayakan Min SKS (`eligible`), **JANGAN** membandingkan SKS lulus dengan Min SKS secara manual. **CATATAN:** `eligible` HANYA berdasarkan total SKS lulus. Sistem **tidak tahu** status magang, itu **WAJIB ditanyakan**.
 
 **Kerja Praktek/Magang (ILK4202), dua syarat sekaligus:**
 1. **SKS:** `eligible == true` dari `getCapstoneCourses` (Min SKS 120).

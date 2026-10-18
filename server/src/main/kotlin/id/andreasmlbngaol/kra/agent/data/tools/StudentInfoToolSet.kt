@@ -1,5 +1,6 @@
 package id.andreasmlbngaol.kra.agent.data.tools
 
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import org.springframework.stereotype.Component
@@ -13,33 +14,34 @@ import id.andreasmlbngaol.kra.academic.domain.usecase.StudentUseCase
 @Component
 class StudentInfoToolSet(
     private val studentUseCase: StudentUseCase,
-    private val courseUseCase: CourseUseCase
-) : LoggingToolSet() {
+    private val courseUseCase: CourseUseCase,
+    sessions: SessionTokenRegistry
+) : LoggingToolSet(sessions) {
 
     /**
-     * Looks up a student's name and semester by NIM; usually the first tool called.
+     * Looks up the session student's name and semester; usually the first tool called.
      *
-     * @param nim The student's NIM (9 characters).
-     * @return JSON with the student data, or found=false when the NIM is unknown.
+     * @param sessionToken Opaque token from the system context, never the NIM.
+     * @return JSON with the student data, or found=false when the session is unknown.
      */
     @Tool
     @LLMDescription(
-        "Mengambil data mahasiswa berdasarkan NIM. Panggil pertama kali sebelum proses lain. " +
-            "JSON {found, nim, name, semester, semesterNote}; found=false jika mahasiswa tidak ditemukan. " +
+        "Mengambil data mahasiswa pada sesi ini. Panggil pertama kali sebelum proses lain. " +
+            "JSON {found, name, semester, semesterNote}; found=false jika mahasiswa tidak ditemukan. " +
             "semester = semester administratif (menghitung cuti). semesterNote = ringkasan matkul wajib yang masih tersisa, " +
             "dihitung dari KHS; pakai ini untuk tahu tingkat matkul yang sedang ditempuh tanpa menebak."
     )
     suspend fun getStudentInfo(
-        @LLMDescription("Nomor Induk Mahasiswa (9 karakter)") nim: String
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String
     ): String {
+        val nim = resolveNim("getStudentInfo", sessionToken) ?: return sessionExpired()
         logCall("getStudentInfo", "nim=$nim")
         val student = studentUseCase.getStudentByNim(nim)
             ?: return logResult(
                 "getStudentInfo",
                 StudentInfoResponse(
                     found = false,
-                    nim = nim,
-                    message = "Mahasiswa dengan NIM $nim tidak ditemukan"
+                    message = "Data mahasiswa untuk sesi ini tidak ditemukan"
                 ).toJson()
             )
         val context = courseUseCase.resolveSemesterContext(nim, student.semester)
@@ -59,7 +61,6 @@ class StudentInfoToolSet(
             "getStudentInfo",
             StudentInfoResponse(
                 found = true,
-                nim = nim,
                 name = student.name,
                 semester = student.semester,
                 semesterNote = note

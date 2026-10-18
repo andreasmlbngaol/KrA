@@ -19,7 +19,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class StudentInfoResponse(
     val found: Boolean,
-    val nim: String,
     val name: String? = null,
     /** Administrative semester (counts time enrolled, leaves included). */
     val semester: Int? = null,
@@ -41,7 +40,6 @@ data class KhsEntryDto(
 
 @Serializable
 data class KhsResponse(
-    val nim: String,
     val totalEntries: Int,
     val entries: List<KhsEntryDto>
 )

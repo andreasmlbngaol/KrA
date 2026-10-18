@@ -12,6 +12,7 @@ import ai.koog.prompt.llm.LLModel
 import id.andreasmlbngaol.kra.academic.domain.usecase.KrsUseCase
 import id.andreasmlbngaol.kra.academic.domain.usecase.KrsValidationUseCase
 import id.andreasmlbngaol.kra.agent.data.observability.TokenUsageTracker
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import id.andreasmlbngaol.kra.agent.domain.model.ToolCallStatus
 import id.andreasmlbngaol.kra.agent.domain.model.TurnMetrics
 import id.andreasmlbngaol.kra.agent.data.tools.CourseToolSet
@@ -39,7 +40,8 @@ class KrsAgent(
     // keeping the onDraftSaved callback isolated per request.
     private val krsUseCase: KrsUseCase,
     private val krsValidationUseCase: KrsValidationUseCase,
-    private val tokenUsageTracker: TokenUsageTracker
+    private val tokenUsageTracker: TokenUsageTracker,
+    private val sessionTokens: SessionTokenRegistry
 ) {
 
     /**
@@ -110,6 +112,7 @@ class KrsAgent(
         val krsToolSet = KrsToolSet(
             krsUseCase = krsUseCase,
             krsValidationUseCase = krsValidationUseCase,
+            sessions = sessionTokens,
             onDraftSaved = onDraftSaved
         )
 
@@ -183,7 +186,7 @@ class KrsAgent(
     /**
      * Runs the agent for a single chat message.
      *
-     * @param agentInput The user's chat message (with the verified NIM context prefixed).
+     * @param agentInput The user's chat message (with the session token context prefixed).
      * @param sessionId The chat session identifier used for per-session memory.
      * @param semester The student's current semester (1-8); loads the relevant prompt modules.
      * @param onStep Friendly-label callback invoked each time the agent starts a step/tool.

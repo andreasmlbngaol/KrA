@@ -1,5 +1,6 @@
 package id.andreasmlbngaol.kra.agent.data.tools
 
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import org.springframework.stereotype.Component
@@ -15,8 +16,9 @@ import id.andreasmlbngaol.kra.academic.domain.usecase.KhsUseCase
 @Component
 class CourseToolSet(
     private val courseUseCase: CourseUseCase,
-    private val khsUseCase: KhsUseCase
-) : LoggingToolSet() {
+    private val khsUseCase: KhsUseCase,
+    sessions: SessionTokenRegistry
+) : LoggingToolSet(sessions) {
 
     /** Lists courses that have a class offering in the active term, without prerequisite filtering. */
     @Tool
@@ -118,9 +120,10 @@ class CourseToolSet(
             "JSON {semester, totalSks, totalCourses, courses:[{code, name, sks, normalSemester, type, importance}]}."
     )
     suspend fun getRemainingMandatoryCourses(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester berjalan") semester: Int
     ): String {
+        val nim = resolveNim("getRemainingMandatoryCourses", sessionToken) ?: return sessionExpired()
         logCall("getRemainingMandatoryCourses", "nim=$nim, semester=$semester")
         val courses = courseUseCase.getRemainingMandatoryCourses(nim, semester)
         val importance = courseUseCase.getImportanceScores(nim)
@@ -163,9 +166,10 @@ class CourseToolSet(
         "Matkul semester atas yang eligible: punya kelas di term aktif (offering), prasyarat terpenuhi, dan normalSemester > semester sekarang. HANYA REGULAR_MANDATORY; matkul pilihan/peminatan dan matkul puncak (KP/Magang ILK4202, Tugas Akhir ILK4299) otomatis dikecualikan. JSON {semester, totalCourses, courses:[{code, name, sks, normalSemester, type}]}. pairingNote menjelaskan kaitan teori-praktikum (null bila tak relevan)."
     )
     suspend fun getEligibleUpperCourses(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester mahasiswa saat ini") semester: Int
     ): String {
+        val nim = resolveNim("getEligibleUpperCourses", sessionToken) ?: return sessionExpired()
         logCall("getEligibleUpperCourses", "nim=$nim, semester=$semester")
         val passedCourses = khsUseCase.getPassedCourseCodes(nim).toSet()
 
@@ -217,8 +221,9 @@ class CourseToolSet(
         "Cek kelayakan matkul puncak KP/Magang (ILK4202) & Tugas Akhir (ILK4299) dari total SKS lulus. Jangan bandingkan SKS lulus vs Min SKS manual. JSON {totalPassedSks, courses:[{code, found, name, sks, minSks, eligible}]}. eligible=true bila Min SKS terpenuhi; found=false bila data matkul tidak ada."
     )
     suspend fun getCapstoneCourses(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String
     ): String {
+        val nim = resolveNim("getCapstoneCourses", sessionToken) ?: return sessionExpired()
         logCall("getCapstoneCourses", "nim=$nim")
         val passedSks = khsUseCase.getTotalPassedSks(nim)
         val dtos = listOf("ILK4202", "ILK4299").map { code ->

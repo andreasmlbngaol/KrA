@@ -1,5 +1,6 @@
 package id.andreasmlbngaol.kra.agent.data.tools
 
+import id.andreasmlbngaol.kra.agent.data.session.SessionTokenRegistry
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import id.andreasmlbngaol.kra.academic.domain.model.csp.CspAssignment
@@ -21,8 +22,9 @@ import org.springframework.stereotype.Component
  */
 @Component
 class KrsCspToolSet(
-    private val krsCspUseCase: KrsCspUseCase
-) : LoggingToolSet() {
+    private val krsCspUseCase: KrsCspUseCase,
+    sessions: SessionTokenRegistry
+) : LoggingToolSet(sessions) {
 
     @Tool
     @LLMDescription(
@@ -51,7 +53,7 @@ class KrsCspToolSet(
             "tetapi draft tetap sah dan boleh disimpan."
     )
     suspend fun solveKrs(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester berjalan") semester: Int,
         @LLMDescription("Kode matkul WAJIB, dipisah koma. Contoh: ILK3101,ILK3102") requiredCourseCodes: String,
         @LLMDescription("Kode matkul OPSIONAL/kandidat tambahan, dipisah koma. Kosongkan ('') bila tidak ada.") optionalCourseCodes: String,
@@ -62,6 +64,7 @@ class KrsCspToolSet(
         @LLMDescription("Bobot minat 0..1 per matkul, format 'ILK3101:0.9,ILK3102:0.4'. Kosongkan ('') bila tidak ada.") interestWeights: String,
         @LLMDescription("Jumlah alternatif solusi yang diminta (0-3).") maxAlternatives: Int
     ): String {
+        val nim = resolveNim("solveKrs", sessionToken) ?: return sessionExpired()
         logCall(
             "solveKrs",
             "nim=$nim, semester=$semester, required=$requiredCourseCodes, optional=$optionalCourseCodes, " +
@@ -93,11 +96,12 @@ class KrsCspToolSet(
             "bindingConstraints menjelaskan apa yang membatasi (mis. SCHEDULE_CONFLICT, QUOTA, TOTAL_SKS)."
     )
     suspend fun getKrsCapacity(
-        @LLMDescription("Nomor Induk Mahasiswa") nim: String,
+        @LLMDescription("Token sesi mahasiswa dari konteks sistem, bukan NIM") sessionToken: String,
         @LLMDescription("Semester berjalan") semester: Int,
         @LLMDescription("KOM mahasiswa: A, B, atau C. Kosongkan ('') bila belum diketahui.") studentClassCode: String,
         @LLMDescription("true bila mahasiswa mengambil MBKM semester ini.") mbkmMode: Boolean
     ): String {
+        val nim = resolveNim("getKrsCapacity", sessionToken) ?: return sessionExpired()
         logCall("getKrsCapacity", "nim=$nim, semester=$semester, kom=$studentClassCode, mbkm=$mbkmMode")
         val result = krsCspUseCase.capacityForSemester(
             nim = nim,
